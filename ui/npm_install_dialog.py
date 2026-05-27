@@ -1,0 +1,218 @@
+"""
+In-app overlay modal that runs `npm install` in the project directory and
+streams the output live.
+
+Renders as a semi-transparent full-window backdrop with a centred card
+on top — no separate OS window or title bar.
+"""
+from __future__ import annotations
+
+import re
+import sys
+
+from PyQt6.QtCore import QEvent, QProcess, QProcessEnvironment, Qt
+from PyQt6.QtGui import QColor, QFontDatabase, QPainter, QTextCursor
+
+from core.node_env import node_path_env
+from PyQt6.QtWidgets import (
+    QFrame, QHBoxLayout, QLabel, QProgressBar,
+    QPushButton, QSizePolicy, QTextEdit, QVBoxLayout, QWidget,
+)
+
+# Strip ANSI colour / control sequences so the output is readable in QTextEdit
+_ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]|\x1b\][^\x07]*\x07|\x1b[()][AB012]")
+
+
+def _strip_ansi(text: str) -> str:
+    return _ANSI_RE.sub("", text)
+
+
+class NpmInstallDialog(QWidget):
+    """
+    In-app overlay modal.  Fills the parent window with a semi-transparent
+    backdrop; a centred card holds the npm install controls.
+    Starts `npm install` immediately on construction.
+    """
+
+    def __init__(self, project_dir: str, parent=None) -> None:
+        super().__init__(parent)
+        self._project_dir = project_dir
+        self._process: QProcess | None = None
+
+        # Cover the entire parent widget
+        if parent:
+            self.setGeometry(parent.rect())
+            parent.installEventFilter(self)
+
+        self._build_ui()
+        self._start()
+        self.raise_()
+        self.show()
+
+    # ── resize tracking ───────────────────────────────────────────────────────
+
+    def eventFilter(self, obj, event):  # type: ignore[override]
+        if obj is self.parent() and event.type() == QEvent.Type.Resize:
+            self.setGeometry(self.parent().rect())
+        return super().eventFilter(obj, event)
+
+    # ── backdrop ──────────────────────────────────────────────────────────────
+
+    def paintEvent(self, event) -> None:  # type: ignore[override]
+        painter = QPainter(self)
+        painter.fillRect(self.rect(), QColor(0, 0, 0, 140))
+
+    # ── construction ──────────────────────────────────────────────────────────
+
+    def _build_ui(self) -> None:
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 48, 0, 48)
+        outer.setSpacing(0)
+
+        # Card
+        card = QFrame()
+        card.setObjectName("npmCard")
+        card.setFixedWidth(720)
+        card_layout = QVBoxLayout(card)
+        card_layout.setContentsMargins(24, 24, 24, 24)
+        card_layout.setSpacing(12)
+
+        # Title
+        title = QLabel("npm install")
+        title.setObjectName("npmCardTitle")
+        card_layout.addWidget(title)
+
+        # Progress bar (indeterminate while running)
+        self._progress = QProgressBar()
+        self._progress.setObjectName("npmProgress")
+        self._progress.setRange(0, 0)   # indeterminate / bouncing
+        self._progress.setMaximumHeight(6)
+        self._progress.setTextVisible(False)
+        card_layout.addWidget(self._progress)
+
+        # Status label
+        self._status_lbl = QLabel("Running npm install…")
+        self._status_lbl.setObjectName("npmStatusRunning")
+        card_layout.addWidget(self._status_lbl)
+
+        # Output toggle button (full-width, left-aligned)
+        self._toggle_btn = QPushButton("▶   Output")
+        self._toggle_btn.setObjectName("npmToggle")
+        self._toggle_btn.setCheckable(True)
+        self._toggle_btn.setChecked(False)
+        self._toggle_btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self._toggle_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._toggle_btn.toggled.connect(self._on_toggle)
+        card_layout.addWidget(self._toggle_btn)
+
+        # Output text area — hidden by default
+        mono = QFontDatabase.systemFont(QFontDatabase.SystemFont.FixedFont)
+        mono.setPointSize(12)
+        self._output = QTextEdit()
+        self._output.setObjectName("npmOutput")
+        self._output.setReadOnly(True)
+        self._output.setFont(mono)
+        self._output.setMinimumHeight(220)
+        self._output.setMaximumHeight(380)
+        self._output.setVisible(False)
+        card_layout.addWidget(self._output)
+
+        # Close button row
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+        self._close_btn = QPushButton("Close")
+        self._close_btn.setObjectName("btnBlue")
+        self._close_btn.setMinimumWidth(88)
+        self._close_btn.setEnabled(False)   # enabled when process finishes
+        self._close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._close_btn.clicked.connect(self._close)
+        btn_row.addWidget(self._close_btn)
+        card_layout.addLayout(btn_row)
+
+        outer.addStretch(1)
+        outer.addWidget(card, 0, Qt.AlignmentFlag.AlignHCenter)
+        outer.addStretch(1)
+
+    # ── close ─────────────────────────────────────────────────────────────────
+
+    def _close(self) -> None:
+        if self.parent():
+            self.parent().removeEventFilter(self)
+        self.hide()
+        self.deleteLater()
+
+    # ── process ───────────────────────────────────────────────────────────────
+
+    def _start(self) -> None:
+        self._process = QProcess(self)
+        self._process.setWorkingDirectory(self._project_dir)
+
+        # Ensure node/npm are findable on macOS GUI apps where PATH is minimal
+        proc_env = QProcessEnvironment.systemEnvironment()
+        proc_env.insert("PATH", node_path_env()["PATH"])
+        self._process.setProcessEnvironment(proc_env)
+
+        # Merge stdout + stderr into one stream
+        self._process.setProcessChannelMode(
+            QProcess.ProcessChannelMode.MergedChannels
+        )
+        self._process.readyReadStandardOutput.connect(self._on_output)
+        self._process.finished.connect(self._on_finished)
+
+        if sys.platform == "win32":
+            self._process.start("cmd.exe", ["/c", "npm", "install"])
+        else:
+            self._process.start("npm", ["install"])
+
+        if not self._process.waitForStarted(3000):
+            self._on_failed_to_start()
+
+    def _on_output(self) -> None:
+        raw = bytes(self._process.readAllStandardOutput()).decode("utf-8", errors="replace")
+        text = _strip_ansi(raw)
+        cur = self._output.textCursor()
+        cur.movePosition(QTextCursor.MoveOperation.End)
+        cur.insertText(text)
+        self._output.setTextCursor(cur)
+        self._output.ensureCursorVisible()
+
+    def _on_finished(self, exit_code: int, _exit_status) -> None:
+        self._progress.setRange(0, 1)
+        self._progress.setValue(1)
+        self._close_btn.setEnabled(True)
+
+        if exit_code == 0:
+            self._status_lbl.setObjectName("npmStatusOk")
+            self._status_lbl.setText("✓   Done — dependencies installed successfully")
+        else:
+            self._status_lbl.setObjectName("npmStatusError")
+            self._status_lbl.setText(f"✕   Failed (exit code {exit_code})")
+            # Auto-expand output on failure so the error is visible
+            self._toggle_btn.setChecked(True)
+
+        # Re-apply stylesheet so the new objectName takes effect
+        self._status_lbl.style().unpolish(self._status_lbl)
+        self._status_lbl.style().polish(self._status_lbl)
+
+    def _on_failed_to_start(self) -> None:
+        self._progress.setRange(0, 1)
+        self._progress.setValue(0)
+        self._status_lbl.setObjectName("npmStatusError")
+        self._status_lbl.setText("✕   Could not start npm — is it installed and on PATH?")
+        self._status_lbl.style().unpolish(self._status_lbl)
+        self._status_lbl.style().polish(self._status_lbl)
+        self._close_btn.setEnabled(True)
+
+    # ── toggle ────────────────────────────────────────────────────────────────
+
+    def _on_toggle(self, checked: bool) -> None:
+        self._output.setVisible(checked)
+        self._toggle_btn.setText("▼   Output" if checked else "▶   Output")
+
+    # ── cleanup ───────────────────────────────────────────────────────────────
+
+    def closeEvent(self, event) -> None:  # type: ignore[override]
+        if self._process and self._process.state() != QProcess.ProcessState.NotRunning:
+            self._process.kill()
+            self._process.waitForFinished(2000)
+        super().closeEvent(event)
