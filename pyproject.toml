@@ -8,9 +8,9 @@ version = "1.0.1"
 description = "Desktop application for managing npm package dependencies"
 requires-python = ">=3.11"
 dependencies = [
-    "PyQt6>=6.6.0",
-    "requests>=2.31.0",
-    "packaging>=23.0",
+    "PyQt6>=6.11.0",
+    "requests>=2.34.2",
+    "packaging>=26.2",
 ]
 
 [project.scripts]
