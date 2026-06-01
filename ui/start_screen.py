@@ -2,7 +2,7 @@
 Start screen — shown when no package.json is loaded.
 
 Displays recently opened projects with their last-checked dates and
-two open buttons (folder or direct file).
+two open buttons (pom.xml or package.json).
 """
 from __future__ import annotations
 
@@ -22,17 +22,15 @@ class StartScreen(QWidget):
     -------
     file_selected(path)
         Emitted when the user clicks a recent-file row.
-    open_folder_requested()
-        Emitted when the user clicks "Open Folder".
+    open_pom_requested()
+        Emitted when the user clicks "Open pom.xml".
     open_file_requested()
         Emitted when the user clicks "Open package.json".
     """
 
-    file_selected         = pyqtSignal(str)
-    recent_removed        = pyqtSignal(str)   # path
-    recents_cleared       = pyqtSignal()
-    open_folder_requested = pyqtSignal()
-    open_file_requested   = pyqtSignal()
+    file_selected       = pyqtSignal(str)
+    open_pom_requested  = pyqtSignal()
+    open_file_requested = pyqtSignal()
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -76,10 +74,10 @@ class StartScreen(QWidget):
         btn_row = QHBoxLayout()
         btn_row.setSpacing(10)
 
-        btn_folder = QPushButton("📁  Open Folder")
+        btn_folder = QPushButton("📄  Open pom.xml")
         btn_folder.setObjectName("startBtnSecondary")
         btn_folder.setCursor(Qt.CursorShape.PointingHandCursor)
-        btn_folder.clicked.connect(self.open_folder_requested)
+        btn_folder.clicked.connect(self.open_pom_requested)
 
         btn_file = QPushButton("📄  Open package.json")
         btn_file.setObjectName("startBtnPrimary")
@@ -92,18 +90,9 @@ class StartScreen(QWidget):
         clo.addSpacing(36)
 
         # ── recent files section ──────────────────────────────────────────────
-        self._recent_header = QWidget()
+        self._recent_header = QLabel("RECENT")
+        self._recent_header.setObjectName("recentHeader")
         self._recent_header.setVisible(False)
-        header_row = QHBoxLayout(self._recent_header)
-        header_row.setContentsMargins(0, 0, 0, 0)
-        header_lbl = QLabel("RECENT")
-        header_lbl.setObjectName("recentHeader")
-        header_row.addWidget(header_lbl, 1)
-        self._clear_btn = QPushButton("Clear all")
-        self._clear_btn.setObjectName("recentClearBtn")
-        self._clear_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._clear_btn.clicked.connect(self.recents_cleared)
-        header_row.addWidget(self._clear_btn)
         clo.addWidget(self._recent_header)
         clo.addSpacing(8)
 
@@ -188,18 +177,10 @@ class StartScreen(QWidget):
         age_lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         age_lbl.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Preferred)
 
-        remove_btn = QPushButton("×")
-        remove_btn.setObjectName("recentRemoveBtn")
-        remove_btn.setFixedSize(24, 24)
-        remove_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        remove_btn.setToolTip("Remove from recents")
-        remove_btn.clicked.connect(lambda _=False, p=path: self.recent_removed.emit(p))
-
         h.addLayout(left, 1)
         h.addWidget(age_lbl)
-        h.addWidget(remove_btn)
 
-        # Click anywhere on the row (outside the remove button) to open that file
+        # Click anywhere on the row to open that file
         row.mousePressEvent = lambda _e, p=path: self.file_selected.emit(p)
 
         return row

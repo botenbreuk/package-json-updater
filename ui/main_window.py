@@ -23,17 +23,22 @@ from PyQt6.QtCore import QObject, Qt, QThread, QTimer, pyqtSignal
 from PyQt6.QtGui import QAction, QColor, QIcon, QKeySequence, QPalette
 from PyQt6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QFileDialog, QFrame, QHBoxLayout, QLabel,
-    QMainWindow, QMenu, QMessageBox, QProgressBar, QPushButton,
+    QMainWindow, QMessageBox, QProgressBar, QPushButton,
     QSizePolicy, QStackedWidget, QToolBar, QVBoxLayout, QWidget,
 )
 
 from core.node_env import node_path_env
 from core.npm_cache import NpmCache
 from core.package_json import load as load_package, save as save_package
+from core.pom_xml import load as load_pom, save as save_pom
 from models.dependency import DependencyInfo
+from models.maven_dependency import MavenDependencyInfo
 from models.settings import AppSettings
 from workers.fetch_worker import FetchWorker
+from workers.maven_fetch_worker import MavenFetchWorker
 from .dependency_table import DependencyTable
+from .maven_dependency_table import MavenDependencyTable
+from .mvn_install_dialog import MvnInstallDialog
 from .npm_install_dialog import NpmInstallDialog
 from .settings_page import SettingsPage
 from .start_screen import StartScreen
@@ -94,6 +99,16 @@ class _VersionFetcher(QObject):
         self.versions_ready.emit(node_v, npm_v)
 
 
+class _JavaVersionFetcher(QObject):
+    """Fetches `java -version` and `mvn --version` in a background thread."""
+
+    versions_ready = pyqtSignal(str, str)   # (java_version, mvn_version)
+
+    def run(self) -> None:
+        from core.maven_env import java_version, mvn_version
+        self.versions_ready.emit(java_version(), mvn_version())
+
+
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
@@ -112,8 +127,17 @@ class MainWindow(QMainWindow):
         self._min_age_at_settings_open: int = self._settings.min_age_days
         self._cache = NpmCache()
         self._pending_install_names: set[str] = set()
-        self._node_version = ""          # filled in by _VersionFetcher
+        self._node_version = ""
         self._ver_thread: Optional[QThread] = None
+
+        # Maven state
+        self._file_mode: str = ""        # "" | "npm" | "maven"
+        self._pom_path: Optional[str] = None
+        self._pom_raw: dict = {}
+        self._maven_deps: list[MavenDependencyInfo] = []
+        self._maven_thread: Optional[QThread] = None
+        self._maven_worker: Optional[MavenFetchWorker] = None
+        self._java_ver_thread: Optional[QThread] = None
 
         self.setWindowTitle("Package.json Updater")
         self.setMinimumSize(1000, 600)
@@ -121,12 +145,15 @@ class MainWindow(QMainWindow):
 
         self._build_ui()
         self._set_chrome_visible(False)
+        self._switch_footer_mode("")
         self._apply_palette()
         self._apply_stylesheet()
         self._table.set_dark(self._settings.dark_mode)
         self._table.set_merge_patch_minor(self._settings.merge_patch_minor)
+        self._maven_table.set_dark(self._settings.dark_mode)
         self._start_screen.set_recent(self._settings.recent_files)
         self._start_version_fetch()
+        self._start_java_version_fetch()
 
     # ── UI construction ───────────────────────────────────────────────────────
 
@@ -150,10 +177,8 @@ class MainWindow(QMainWindow):
 
         # Page 0: start screen
         self._start_screen = StartScreen()
-        self._start_screen.file_selected.connect(self._open_file)
-        self._start_screen.recent_removed.connect(self._on_recent_removed)
-        self._start_screen.recents_cleared.connect(self._on_recents_cleared)
-        self._start_screen.open_folder_requested.connect(self._browse_folder)
+        self._start_screen.file_selected.connect(self._open_recent)
+        self._start_screen.open_pom_requested.connect(self._browse_pom)
         self._start_screen.open_file_requested.connect(self._browse_file)
         self._stack.addWidget(self._start_screen)
 
@@ -178,6 +203,18 @@ class MainWindow(QMainWindow):
         self._settings_page.cache_clear_requested.connect(self._cache.clear)
         self._stack.addWidget(self._settings_page)
 
+        # Page 3: Maven dependency table
+        self._maven_table = MavenDependencyTable()
+        self._maven_table.update_requested.connect(self._on_maven_update_requested)
+        self._maven_table.selection_changed.connect(self._on_maven_selection_changed)
+        _maven_frame = QFrame()
+        _maven_frame.setObjectName("tableFrame")
+        _maven_frame_layout = QVBoxLayout(_maven_frame)
+        _maven_frame_layout.setContentsMargins(0, 0, 0, 0)
+        _maven_frame_layout.setSpacing(0)
+        _maven_frame_layout.addWidget(self._maven_table)
+        self._stack.addWidget(_maven_frame)
+
         self._stack.setCurrentIndex(0)
         layout.addWidget(self._stack)
 
@@ -186,6 +223,12 @@ class MainWindow(QMainWindow):
         _sp = self._action_bar.sizePolicy()
         _sp.setRetainSizeWhenHidden(False)
         self._action_bar.setSizePolicy(_sp)
+
+        self._maven_action_bar = self._build_maven_action_bar()
+        layout.addWidget(self._maven_action_bar)
+        _sp2 = self._maven_action_bar.sizePolicy()
+        _sp2.setRetainSizeWhenHidden(False)
+        self._maven_action_bar.setSizePolicy(_sp2)
 
         self._build_status_bar_versions()
 
@@ -202,13 +245,13 @@ class MainWindow(QMainWindow):
         act_open.triggered.connect(self._browse_file)
         tb.addAction(act_open)
 
-        act_open_folder = QAction("📁  Open Folder", self)
-        act_open_folder.triggered.connect(self._browse_folder)
-        tb.addAction(act_open_folder)
+        act_open_pom = QAction("📄  Open pom.xml", self)
+        act_open_pom.triggered.connect(self._browse_pom)
+        tb.addAction(act_open_pom)
 
         act_refresh = QAction("↺  Refresh", self)
         act_refresh.setShortcut(QKeySequence.StandardKey.Refresh)
-        act_refresh.triggered.connect(lambda: self._start_fetch(bypass_cache=True))
+        act_refresh.triggered.connect(self._on_refresh)
         self._act_refresh = act_refresh
         tb.addAction(act_refresh)
 
@@ -235,9 +278,9 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(10, 6, 10, 6)
         layout.setSpacing(12)
 
-        show_label = QLabel("Show:")
-        show_label.setObjectName("showLabel")
-        layout.addWidget(show_label)
+        self._show_label = QLabel("Show:")
+        self._show_label.setObjectName("showLabel")
+        layout.addWidget(self._show_label)
 
         self._group_combo = QComboBox()
         self._group_combo.addItem("All groups", None)
@@ -284,44 +327,21 @@ class MainWindow(QMainWindow):
         self._btn_update_selected.clicked.connect(self._update_selected)
         row.addWidget(self._btn_update_selected)
 
-        self._update_mode = "patch_minor"
+        self._mode_combo = QComboBox()
+        self._mode_combo.setObjectName("modeCombo")
+        for label, value in _UPDATE_MODES:
+            self._mode_combo.addItem(label, value)
+        self._mode_combo.setToolTip(
+            "Choose which update levels to apply when using 'Update All'."
+        )
+        row.addWidget(self._mode_combo)
 
-        # Split button: main action + dropdown arrow
-        split = QWidget()
-        split.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground)
-        split.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
-        split.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
-        split_lo = QHBoxLayout(split)
-        split_lo.setContentsMargins(0, 0, 0, 0)
-        split_lo.setSpacing(0)
-
-        self._btn_update_all = QPushButton("Update All  ·  Patch / Minor")
-        self._btn_update_all.setObjectName("btnUpdateAllMain")
+        self._btn_update_all = QPushButton("Update All")
+        self._btn_update_all.setObjectName("btnPurple")
         self._btn_update_all.setEnabled(False)
         self._btn_update_all.setCursor(Qt.CursorShape.PointingHandCursor)
         self._btn_update_all.clicked.connect(self._update_all)
-        split_lo.addWidget(self._btn_update_all)
-
-        self._btn_update_all_arrow = QPushButton("▾")
-        self._btn_update_all_arrow.setObjectName("btnUpdateAllArrow")
-        self._btn_update_all_arrow.setEnabled(False)
-        self._btn_update_all_arrow.setFixedWidth(26)
-        self._btn_update_all_arrow.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding)
-        self._btn_update_all_arrow.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._btn_update_all_arrow.setToolTip("Choose update scope")
-        self._btn_update_all_arrow.clicked.connect(self._show_update_mode_menu)
-        split_lo.addWidget(self._btn_update_all_arrow)
-
-        self._update_mode_menu = QMenu(self)
-        self._act_patch_minor = self._update_mode_menu.addAction("Patch / Minor only")
-        self._act_patch_minor.setCheckable(True)
-        self._act_patch_minor.setChecked(True)
-        self._act_all_major = self._update_mode_menu.addAction("All (including Major)")
-        self._act_all_major.setCheckable(True)
-        self._act_patch_minor.triggered.connect(lambda: self._set_update_mode("patch_minor"))
-        self._act_all_major.triggered.connect(lambda: self._set_update_mode("all"))
-
-        row.addWidget(split)
+        row.addWidget(self._btn_update_all)
 
         self._btn_npm_install = QPushButton("📦  npm install")
         self._btn_npm_install.setObjectName("btnNpmInstall")
@@ -339,6 +359,57 @@ class MainWindow(QMainWindow):
         self._progress.setMaximumHeight(6)
         self._progress.setTextVisible(False)
         row.addWidget(self._progress)
+
+        layout.addLayout(row)
+
+        return bar
+
+    def _build_maven_action_bar(self) -> QWidget:
+        bar = QWidget()
+        layout = QVBoxLayout(bar)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
+
+        sep = QFrame()
+        sep.setObjectName("actionSep")
+        sep.setFrameShape(QFrame.Shape.HLine)
+        sep.setFixedHeight(1)
+        layout.addWidget(sep)
+
+        row = QHBoxLayout()
+        row.setContentsMargins(0, 4, 0, 0)
+        row.setSpacing(8)
+
+        self._btn_maven_update_selected = QPushButton("Update Selected")
+        self._btn_maven_update_selected.setObjectName("btnBlue")
+        self._btn_maven_update_selected.setEnabled(False)
+        self._btn_maven_update_selected.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn_maven_update_selected.clicked.connect(self._maven_update_selected)
+        row.addWidget(self._btn_maven_update_selected)
+
+        self._btn_maven_update_all = QPushButton("Update All")
+        self._btn_maven_update_all.setObjectName("btnPurple")
+        self._btn_maven_update_all.setEnabled(False)
+        self._btn_maven_update_all.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn_maven_update_all.clicked.connect(self._maven_update_all)
+        row.addWidget(self._btn_maven_update_all)
+
+        self._btn_mvn_install = QPushButton("⚙  mvn dependency:resolve")
+        self._btn_mvn_install.setObjectName("btnNpmInstall")
+        self._btn_mvn_install.setEnabled(False)
+        self._btn_mvn_install.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn_mvn_install.setToolTip("Run mvn dependency:resolve in the project directory")
+        self._btn_mvn_install.clicked.connect(self._run_mvn_install)
+        row.addWidget(self._btn_mvn_install)
+
+        row.addStretch()
+
+        self._maven_progress = QProgressBar()
+        self._maven_progress.setVisible(False)
+        self._maven_progress.setMaximumWidth(180)
+        self._maven_progress.setMaximumHeight(6)
+        self._maven_progress.setTextVisible(False)
+        row.addWidget(self._maven_progress)
 
         layout.addLayout(row)
 
@@ -373,13 +444,28 @@ class MainWindow(QMainWindow):
         self._footer_node.setObjectName("footerVersion")
         lo.addWidget(self._footer_node)
 
-        sep = QLabel("  ·  ")
-        sep.setObjectName("footerSep")
-        lo.addWidget(sep)
+        self._footer_sep_npm = QLabel("  ·  ")
+        self._footer_sep_npm.setObjectName("footerSep")
+        lo.addWidget(self._footer_sep_npm)
 
         self._footer_npm = QLabel("npm …")
         self._footer_npm.setObjectName("footerVersion")
         lo.addWidget(self._footer_npm)
+
+        self._footer_java = QLabel("java …")
+        self._footer_java.setObjectName("footerVersion")
+        self._footer_java.setVisible(False)
+        lo.addWidget(self._footer_java)
+
+        self._footer_sep_mvn = QLabel("  ·  ")
+        self._footer_sep_mvn.setObjectName("footerSep")
+        self._footer_sep_mvn.setVisible(False)
+        lo.addWidget(self._footer_sep_mvn)
+
+        self._footer_mvn = QLabel("mvn …")
+        self._footer_mvn.setObjectName("footerVersion")
+        self._footer_mvn.setVisible(False)
+        lo.addWidget(self._footer_mvn)
 
         # ── file path label (added first → leftmost permanent widget) ───────────
         self._file_label = _ElidingLabel()
@@ -411,9 +497,37 @@ class MainWindow(QMainWindow):
         self._node_version = node_v
         self._footer_node.setText(f"node {node_v}" if node_v else "node —")
         self._footer_npm.setText(f"npm {npm_v}" if npm_v else "npm —")
-        # Re-colour .nvmrc now that we know the installed node version
         if self._file_path:
             self._update_nvmrc(os.path.dirname(self._file_path))
+
+    def _start_java_version_fetch(self) -> None:
+        """Spawn a background thread to retrieve java/mvn version strings."""
+        fetcher = _JavaVersionFetcher()
+        thread = QThread(self)
+        fetcher.moveToThread(thread)
+        thread.started.connect(fetcher.run)
+        fetcher.versions_ready.connect(thread.quit)
+        fetcher.versions_ready.connect(fetcher.deleteLater)
+        fetcher.versions_ready.connect(self._on_java_versions_fetched)
+        thread.finished.connect(thread.deleteLater)
+        self._java_ver_thread = thread
+        self._java_ver_fetcher = fetcher
+        thread.start()
+
+    def _on_java_versions_fetched(self, java_v: str, mvn_v: str) -> None:
+        self._java_ver_thread = None
+        self._java_ver_fetcher = None
+        self._footer_java.setText(f"java {java_v}" if java_v else "java —")
+        self._footer_mvn.setText(f"mvn {mvn_v}" if mvn_v else "mvn —")
+
+    def _switch_footer_mode(self, mode: str) -> None:
+        """Show node/npm, java/mvn, or nothing depending on *mode* ("npm"/"maven"/"")."""
+        self._footer_node.setVisible(mode == "npm")
+        self._footer_sep_npm.setVisible(mode == "npm")
+        self._footer_npm.setVisible(mode == "npm")
+        self._footer_java.setVisible(mode == "maven")
+        self._footer_sep_mvn.setVisible(mode == "maven")
+        self._footer_mvn.setVisible(mode == "maven")
 
     def _update_nvmrc(self, project_dir: Optional[str]) -> None:
         """Show/hide the .nvmrc label; warn when major version mismatches node."""
@@ -459,38 +573,24 @@ class MainWindow(QMainWindow):
 
     def _set_chrome_visible(self, visible: bool) -> None:
         """Show or hide the table-specific UI (filter bar, action bar, toolbar items)."""
+        is_maven = self._file_mode == "maven"
         self._filter_bar.setVisible(visible)
-        self._action_bar.setVisible(visible)
+        # npm-only controls inside the filter bar
+        self._show_label.setVisible(visible and not is_maven)
+        self._group_combo.setVisible(visible and not is_maven)
+        self._action_bar.setVisible(visible and not is_maven)
+        self._maven_action_bar.setVisible(visible and is_maven)
         self._act_refresh.setVisible(visible)
         self._act_close.setVisible(visible)
         self._file_label.setVisible(visible)
 
-    # ── pending-install persistence ───────────────────────────────────────────
-
-    def _save_pending(self) -> None:
-        if not self._file_path:
-            return
-        if self._pending_install_names:
-            self._settings.pending_installs[self._file_path] = list(self._pending_install_names)
-        else:
-            self._settings.pending_installs.pop(self._file_path, None)
-        self._settings.save()
-
-    # ── recents management ────────────────────────────────────────────────────
-
-    def _on_recent_removed(self, path: str) -> None:
-        self._settings.recent_files = [
-            r for r in self._settings.recent_files if r.get("path") != path
-        ]
-        self._settings.save()
-        self._start_screen.set_recent(self._settings.recent_files)
-
-    def _on_recents_cleared(self) -> None:
-        self._settings.recent_files = []
-        self._settings.save()
-        self._start_screen.set_recent(self._settings.recent_files)
-
     # ── file open ─────────────────────────────────────────────────────────────
+
+    def _open_recent(self, path: str) -> None:
+        if os.path.basename(path) == "pom.xml":
+            self._open_pom(path)
+        else:
+            self._open_file(path)
 
     def _browse_file(self) -> None:
         start_dir = (
@@ -530,6 +630,62 @@ class MainWindow(QMainWindow):
                 f"No package.json was found in:\n{folder}",
             )
 
+    def _browse_pom(self) -> None:
+        start_dir = (
+            os.path.dirname(self._settings.last_opened_path)
+            if self._settings.last_opened_path
+            else os.path.expanduser("~")
+        )
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Open pom.xml",
+            start_dir,
+            "Maven POM (pom.xml);;All Files (*)",
+        )
+        self.activateWindow()
+        if path:
+            self._open_pom(path)
+
+    def _open_pom(self, path: str) -> None:
+        try:
+            raw, deps = load_pom(path)
+        except Exception as exc:  # noqa: BLE001
+            self.statusBar().showMessage(f"Could not read pom.xml: {exc}")
+            return
+
+        # Close any open npm file first
+        if self._file_mode == "npm":
+            self._cancel_fetch()
+            self._file_path = None
+            self._original_data = {}
+            self._deps = []
+            self._table.populate([])
+        elif self._file_mode == "maven":
+            self._cancel_maven_fetch()
+
+        self._file_mode = "maven"
+        self._pom_path = path
+        self._pom_raw = raw
+        self._maven_deps = deps
+        self._settings.last_opened_path = path
+        self._settings.add_recent(path)
+        self._settings.save()
+        self._start_screen.set_recent(self._settings.recent_files)
+
+        project_name = raw.get("project_name") or os.path.basename(os.path.dirname(path))
+        self._file_label.setFullText(path)
+        self.setWindowTitle(f"Package.json Updater — {project_name}")
+
+        self._maven_table.populate(deps)
+        self._maven_table.set_hide_uptodate(self._hide_uptodate_cb.isChecked())
+        self._btn_maven_update_selected.setEnabled(False)
+        self._btn_maven_update_all.setEnabled(False)
+        self._btn_mvn_install.setEnabled(True)
+        self._set_chrome_visible(True)
+        self._switch_footer_mode("maven")
+        self._stack.setCurrentIndex(3)
+        self._start_maven_fetch()
+
     def _open_file(self, path: str) -> None:
         try:
             original_data, deps = load_package(path)
@@ -537,6 +693,14 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Error", f"Could not read package.json:\n{exc}")
             return
 
+        # Close any open Maven file first
+        if self._file_mode == "maven":
+            self._cancel_maven_fetch()
+            self._pom_path = None
+            self._maven_deps = []
+            self._maven_table.populate([])
+
+        self._file_mode = "npm"
         self._file_path = path
         self._original_data = original_data
         self._deps = deps
@@ -549,14 +713,14 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(f"Package.json Updater — {os.path.basename(os.path.dirname(path))}")
 
         self._table.populate(deps)
-        self._pending_install_names |= set(self._settings.pending_installs.get(path, []))
         for dep in self._deps:
             if dep.name in self._pending_install_names:
                 dep.needs_install = True
         self._table.set_hide_uptodate(self._hide_uptodate_cb.isChecked())
-        self._btn_update_selected.setEnabled(False)   # all checkboxes reset by populate
+        self._btn_update_selected.setEnabled(False)
         self._btn_npm_install.setEnabled(True)
         self._set_chrome_visible(True)
+        self._switch_footer_mode("npm")
         self._stack.setCurrentIndex(1)
         self._update_count_label()
         self._update_nvmrc(os.path.dirname(path))
@@ -564,21 +728,30 @@ class MainWindow(QMainWindow):
 
     def _close_file(self) -> None:
         """Cancel any running fetch, clear state, and return to the start screen."""
-        self._cancel_fetch()
-        self._file_path = None
-        self._original_data = {}
-        self._deps = []
-        self._table.populate([])
-        self._btn_update_selected.setEnabled(False)
-        self._btn_update_all.setEnabled(False)
-        self._btn_update_all_arrow.setEnabled(False)
-        self._btn_npm_install.setEnabled(False)
-        self._count_label.setText("")
+        if self._file_mode == "maven":
+            self._cancel_maven_fetch()
+            self._pom_path = None
+            self._pom_raw = {}
+            self._maven_deps = []
+            self._maven_table.populate([])
+        else:
+            self._cancel_fetch()
+            self._file_path = None
+            self._original_data = {}
+            self._deps = []
+            self._table.populate([])
+            self._btn_update_selected.setEnabled(False)
+            self._btn_update_all.setEnabled(False)
+            self._btn_npm_install.setEnabled(False)
+            self._count_label.setText("")
+            self._update_nvmrc(None)
+
+        self._file_mode = ""
         self._set_chrome_visible(False)
+        self._switch_footer_mode("")
         self._stack.setCurrentIndex(0)
         self.setWindowTitle("Package.json Updater")
         self.statusBar().showMessage("No file loaded. Open a package.json to begin.")
-        self._update_nvmrc(None)
 
     # ── fetch ──────────────────────────────────────────────────────────────────
 
@@ -600,7 +773,6 @@ class MainWindow(QMainWindow):
         self._progress.setValue(0)
         self._progress.setVisible(True)
         self._btn_update_all.setEnabled(False)
-        self._btn_update_all_arrow.setEnabled(False)
         self._table.set_checkboxes_enabled(False)
 
         self._worker = FetchWorker(
@@ -682,7 +854,6 @@ class MainWindow(QMainWindow):
     def _on_fetch_finished(self) -> None:
         self._progress.setVisible(False)
         self._btn_update_all.setEnabled(True)
-        self._btn_update_all_arrow.setEnabled(True)
         self._table.set_checkboxes_enabled(True)
         # Update Selected is enabled by checkbox selection, not fetch completion.
         self._update_count_label()
@@ -703,6 +874,132 @@ class MainWindow(QMainWindow):
         if errors:
             msg_parts.append(f"{errors} fetch error(s).")
         self.statusBar().showMessage("  ".join(msg_parts))
+
+    # ── refresh ───────────────────────────────────────────────────────────────
+
+    def _on_refresh(self) -> None:
+        if self._file_mode == "maven":
+            self._start_maven_fetch(bypass_cache=True)
+        else:
+            self._start_fetch(bypass_cache=True)
+
+    # ── maven fetch ───────────────────────────────────────────────────────────
+
+    def _start_maven_fetch(self, bypass_cache: bool = False) -> None:
+        if not self._maven_deps:
+            return
+        self._cancel_maven_fetch()
+
+        for dep in self._maven_deps:
+            dep.fetch_status = "loading"
+            dep.latest_version = None
+            self._maven_table.update_row(dep)
+
+        # Managed deps are never fetched — mark them done immediately so
+        # the hide-uptodate filter can evaluate them straight away.
+        for dep in self._maven_deps:
+            if dep.is_managed:
+                dep.fetch_status = "done"
+                self._maven_table.update_row(dep)
+
+        fetchable = [d for d in self._maven_deps if not d.is_managed]
+
+        self._maven_progress.setMaximum(len(fetchable))
+        self._maven_progress.setValue(0)
+        self._maven_progress.setVisible(True)
+        self._btn_maven_update_all.setEnabled(False)
+        self._btn_maven_update_selected.setEnabled(False)
+        self._maven_table.set_checkboxes_enabled(False)
+
+        self._maven_worker = MavenFetchWorker(
+            self._maven_deps,
+            cache=self._cache,
+            cache_ttl_hours=self._settings.cache_ttl_hours,
+            bypass_cache=bypass_cache,
+        )
+        self._maven_thread = QThread()
+        self._maven_worker.moveToThread(self._maven_thread)
+
+        self._maven_thread.started.connect(self._maven_worker.run)
+        self._maven_worker.finished.connect(self._maven_thread.quit)
+        self._maven_worker.finished.connect(self._maven_worker.deleteLater)
+        self._maven_thread.finished.connect(self._maven_thread.deleteLater)
+        self._maven_thread.finished.connect(self._on_maven_fetch_finished)
+        self._maven_thread.finished.connect(self._on_maven_thread_cleanup)
+
+        self._maven_worker.package_ready.connect(self._on_maven_package_ready)
+        self._maven_worker.progress.connect(self._on_maven_progress)
+        self._maven_worker.error.connect(self._on_maven_error)
+
+        self._maven_thread.start()
+        self.statusBar().showMessage(
+            f"Fetching versions for {len(fetchable)} Maven dependencies…"
+        )
+
+    def _cancel_maven_fetch(self) -> None:
+        if self._maven_worker:
+            self._maven_worker.cancel()
+        if self._maven_thread:
+            try:
+                if self._maven_thread.isRunning():
+                    self._maven_thread.quit()
+                    self._maven_thread.wait(2000)
+            except RuntimeError:
+                pass
+        self._maven_worker = None
+        self._maven_thread = None
+
+    def _on_maven_thread_cleanup(self) -> None:
+        self._maven_thread = None
+        self._maven_worker = None
+
+    def _on_maven_package_ready(self, coordinate: str, latest_version: str) -> None:
+        dep = self._maven_dep_by_coordinate(coordinate)
+        if not dep:
+            return
+        dep.fetch_status = "done"
+        dep.latest_version = latest_version or None
+        self._maven_table.update_row(dep)
+
+    def _on_maven_progress(self, completed: int, total: int) -> None:
+        self._maven_progress.setValue(completed)
+        self.statusBar().showMessage(
+            f"Fetching Maven versions… {completed}/{total} checked"
+        )
+
+    def _on_maven_error(self, coordinate: str, message: str) -> None:
+        dep = self._maven_dep_by_coordinate(coordinate)
+        if dep:
+            dep.fetch_status = "error"
+            dep.error_message = message
+            self._maven_table.update_row(dep)
+
+    def _on_maven_fetch_finished(self) -> None:
+        self._maven_progress.setVisible(False)
+        self._btn_maven_update_all.setEnabled(True)
+        self._maven_table.set_checkboxes_enabled(True)
+
+        total = len([d for d in self._maven_deps if not d.is_managed])
+        updates = sum(1 for d in self._maven_deps if d.has_update)
+        errors  = sum(1 for d in self._maven_deps if d.fetch_status == "error")
+        parts = [f"Done — {total} Maven dependencies checked."]
+        if updates:
+            parts.append(f"{updates} have available updates.")
+        else:
+            parts.append("All dependencies are up to date.")
+        if errors:
+            parts.append(f"{errors} fetch error(s).")
+        self.statusBar().showMessage("  ".join(parts))
+
+        if self._pom_path:
+            self._settings.update_last_checked(self._pom_path)
+            self._start_screen.set_recent(self._settings.recent_files)
+
+    def _maven_dep_by_coordinate(self, coordinate: str) -> Optional[MavenDependencyInfo]:
+        for dep in self._maven_deps:
+            if dep.coordinate == coordinate:
+                return dep
+        return None
 
     # ── update ────────────────────────────────────────────────────────────────
 
@@ -734,7 +1031,6 @@ class MainWindow(QMainWindow):
         dep.current_version = version
         dep.needs_install = True
         self._pending_install_names.add(dep.name)
-        self._save_pending()
 
         # Clear whichever bump columns are no longer upgrades from the new baseline.
         if dep.latest_major == version:
@@ -761,18 +1057,72 @@ class MainWindow(QMainWindow):
             bool(self._table.get_selected_deps())
         )
 
-    def _set_update_mode(self, mode: str) -> None:
-        self._update_mode = mode
-        self._act_patch_minor.setChecked(mode == "patch_minor")
-        self._act_all_major.setChecked(mode == "all")
-        label = "Patch / Minor" if mode == "patch_minor" else "All incl. Major"
-        self._btn_update_all.setText(f"Update All  ·  {label}")
-
-    def _show_update_mode_menu(self) -> None:
-        btn = self._btn_update_all_arrow
-        self._update_mode_menu.exec(
-            btn.mapToGlobal(btn.rect().bottomLeft())
+    def _on_maven_selection_changed(self) -> None:
+        self._btn_maven_update_selected.setEnabled(
+            bool(self._maven_table.get_selected_deps())
         )
+
+    def _on_maven_update_requested(self, dep: MavenDependencyInfo, new_version: str) -> None:
+        if not self._pom_path:
+            return
+        try:
+            save_pom(self._pom_path, dep, new_version)
+        except Exception as exc:  # noqa: BLE001
+            self.statusBar().showMessage(f"Failed to write pom.xml: {exc}")
+            return
+
+        # Invalidate cache entry for this dep
+        from workers.maven_fetch_worker import _cache_key
+        self._cache.invalidate(_cache_key(dep), "")
+
+        dep.version = new_version
+        dep.latest_version = None
+        dep.fetch_status = "pending"
+        dep.needs_install = True
+        self._maven_table.update_row(dep)
+        self.statusBar().showMessage(
+            f"✓  {dep.artifact_id} updated to {new_version} — run mvn dependency:resolve to apply."
+        )
+
+    def _maven_update_selected(self) -> None:
+        checked = self._maven_table.get_selected_deps()
+        updates = [(dep, dep.latest_version) for dep in checked if dep.has_update and dep.latest_version]
+        if not updates:
+            QMessageBox.information(self, "Nothing to update",
+                                    "The selected dependencies have no available updates.")
+            return
+        for dep, new_version in updates:
+            self._on_maven_update_requested(dep, new_version)
+
+    def _maven_update_all(self) -> None:
+        updates = [(dep, dep.latest_version) for dep in self._maven_deps
+                   if dep.has_update and dep.latest_version]
+        if not updates:
+            QMessageBox.information(self, "Nothing to update",
+                                    "No dependencies have available updates.")
+            return
+        answer = QMessageBox.question(
+            self,
+            "Confirm Update All",
+            f"Update {len(updates)} dependency(ies) in pom.xml?\n\n"
+            "This will overwrite your pom.xml.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        for dep, new_version in updates:
+            self._on_maven_update_requested(dep, new_version)
+
+    def _run_mvn_install(self) -> None:
+        if not self._pom_path:
+            return
+        project_dir = os.path.dirname(self._pom_path)
+        dialog = MvnInstallDialog(project_dir, parent=self)
+        dialog.succeeded.connect(self._on_mvn_install_succeeded)
+
+    def _on_mvn_install_succeeded(self) -> None:
+        if self._pom_path:
+            self._open_pom(self._pom_path)
 
     def _update_selected(self) -> None:
         checked = self._table.get_selected_deps()
@@ -783,7 +1133,7 @@ class MainWindow(QMainWindow):
                 "Check at least one package checkbox to use Update Selected.",
             )
             return
-        mode = self._update_mode
+        mode = self._mode_combo.currentData()
         updates = [
             (dep, target)
             for dep in checked
@@ -799,7 +1149,7 @@ class MainWindow(QMainWindow):
         self._write_updates(updates)
 
     def _update_all(self) -> None:
-        mode = self._update_mode
+        mode = self._mode_combo.currentData()  # 'patch_minor' or 'all'
         updates: list[tuple[DependencyInfo, str]] = []
 
         for dep in self._deps:
@@ -815,7 +1165,7 @@ class MainWindow(QMainWindow):
             )
             return
 
-        mode_label = "Patch & Minor only" if mode == "patch_minor" else "All (including Major)"
+        mode_label = self._mode_combo.currentText()
         answer = QMessageBox.question(
             self,
             "Confirm Update All",
@@ -855,7 +1205,6 @@ class MainWindow(QMainWindow):
             dep.current_version = new_version
             self._pending_install_names.add(dep.name)
 
-        self._save_pending()
         QMessageBox.information(
             self,
             "Updated",
@@ -876,7 +1225,6 @@ class MainWindow(QMainWindow):
 
     def _on_npm_install_succeeded(self) -> None:
         self._pending_install_names.clear()
-        self._save_pending()
         for dep in self._deps:
             if dep.needs_install:
                 dep.needs_install = False
@@ -889,6 +1237,7 @@ class MainWindow(QMainWindow):
         hide = self._hide_uptodate_cb.isChecked()
         self._table.set_filter_group(group)
         self._table.set_hide_uptodate(hide)
+        self._maven_table.set_hide_uptodate(hide)
         self._settings.hide_uptodate = hide
         self._settings.save()
         self._update_count_label()
@@ -914,9 +1263,9 @@ class MainWindow(QMainWindow):
 
     def _on_settings_back(self) -> None:
         self._stack.setCurrentIndex(self._prev_page)
-        # Re-show chrome only when returning to the table page
-        if self._prev_page == 1:
+        if self._prev_page in (1, 3):
             self._filter_bar.setVisible(True)
+        if self._prev_page == 1:
             self._action_bar.setVisible(True)
 
     def _on_settings_changed(self, settings: AppSettings) -> None:
@@ -925,6 +1274,7 @@ class MainWindow(QMainWindow):
         self._apply_stylesheet()
         self._table.set_dark(settings.dark_mode)
         self._table.set_merge_patch_minor(settings.merge_patch_minor)
+        self._maven_table.set_dark(settings.dark_mode)
         if self._file_path and settings.min_age_days != self._min_age_at_settings_open:
             self._min_age_at_settings_open = settings.min_age_days
             self._start_fetch(bypass_cache=True)
@@ -990,12 +1340,14 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event) -> None:  # type: ignore[override]
         self._cancel_fetch()
-        if self._ver_thread:
-            try:
-                self._ver_thread.quit()
-                self._ver_thread.wait(2000)
-            except RuntimeError:
-                pass
+        self._cancel_maven_fetch()
+        for thread in (self._ver_thread, self._java_ver_thread):
+            if thread:
+                try:
+                    thread.quit()
+                    thread.wait(2000)
+                except RuntimeError:
+                    pass
         super().closeEvent(event)
 
     # ── stylesheet ────────────────────────────────────────────────────────────
@@ -1060,23 +1412,11 @@ class MainWindow(QMainWindow):
             QPushButton#startBtnSecondary:hover   { background: #f1f5f9; border-color: #94a3b8; }
             QPushButton#startBtnSecondary:pressed { background: #e2e8f0; }
             QLabel#recentHeader { font-size: 13px; font-weight: 700; color: #94a3b8; letter-spacing: 1px; }
-            QPushButton#recentClearBtn {
-                background: transparent; color: #94a3b8; border: none;
-                font-size: 13px; font-weight: 600; padding: 0 2px;
-            }
-            QPushButton#recentClearBtn:hover   { color: #ef4444; }
-            QPushButton#recentClearBtn:pressed { color: #dc2626; }
             QFrame#recentRow { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; }
             QFrame#recentRow:hover { background: #eff6ff; border-color: #bfdbfe; }
             QLabel#recentName { font-size: 15px; font-weight: 600; color: #1e293b; }
             QLabel#recentPath { font-size: 13px; color: #94a3b8; }
             QLabel#recentAge  { font-size: 13px; color: #64748b; }
-            QPushButton#recentRemoveBtn {
-                background: transparent; color: #cbd5e1; border: none;
-                font-size: 16px; border-radius: 4px; padding: 0;
-            }
-            QPushButton#recentRemoveBtn:hover   { background: #fee2e2; color: #ef4444; }
-            QPushButton#recentRemoveBtn:pressed { background: #fecaca; color: #dc2626; }
             QLabel#noRecent   { font-size: 15px; color: #94a3b8; padding: 20px; }
             /* Table */
             QFrame#tableFrame {
@@ -1112,6 +1452,9 @@ class MainWindow(QMainWindow):
                 border: 1px solid #fcd34d; border-radius: 4px;
                 font-size: 12px; font-weight: 600; padding: 0 7px;
             }
+            QLabel#mvnArtifactId { color: #1e293b; font-size: 14px; font-weight: 600; background: transparent; }
+            QLabel#mvnGroupId    { color: #94a3b8; font-size: 12px; background: transparent; }
+            QLabel#mvnManaged    { color: #cbd5e1; font-size: 13px; font-style: italic; background: transparent; }
             /* Scrollbars */
             QScrollBar:vertical   { background: transparent; width: 8px;  margin: 4px 2px; }
             QScrollBar:horizontal { background: transparent; height: 8px; margin: 2px 4px; }
@@ -1172,25 +1515,6 @@ class MainWindow(QMainWindow):
             QPushButton#btnPurple:hover    { background: #7c3aed; }
             QPushButton#btnPurple:pressed  { background: #6d28d9; }
             QPushButton#btnPurple:disabled { background: #ddd6fe; }
-            QPushButton#btnUpdateAllMain {
-                background: #8b5cf6; color: #ffffff; border: none;
-                border-top-left-radius: 7px; border-bottom-left-radius: 7px;
-                border-top-right-radius: 0; border-bottom-right-radius: 0;
-                padding: 7px 14px; font-weight: 600; min-height: 32px;
-            }
-            QPushButton#btnUpdateAllMain:hover   { background: #7c3aed; }
-            QPushButton#btnUpdateAllMain:pressed { background: #6d28d9; }
-            QPushButton#btnUpdateAllMain:disabled { background: #ddd6fe; color: #a78bfa; }
-            QPushButton#btnUpdateAllArrow {
-                background: #8b5cf6; color: #ffffff; border: none;
-                border-top-right-radius: 7px; border-bottom-right-radius: 7px;
-                border-top-left-radius: 0; border-bottom-left-radius: 0;
-                border-left: 1px solid #a78bfa;
-                padding: 0; font-size: 14px; min-height: 32px;
-            }
-            QPushButton#btnUpdateAllArrow:hover   { background: #7c3aed; }
-            QPushButton#btnUpdateAllArrow:pressed { background: #6d28d9; }
-            QPushButton#btnUpdateAllArrow:disabled { background: #ddd6fe; color: #c4b5fd; border-left-color: #c4b5fd; }
             QPushButton#btnDanger {
                 background: #ef4444; color: #ffffff; border: none;
                 border-radius: 7px; padding: 7px 18px; font-weight: 600; min-height: 32px;
@@ -1416,23 +1740,11 @@ class MainWindow(QMainWindow):
             QPushButton#startBtnSecondary:hover   { background: #334155; border-color: #475569; }
             QPushButton#startBtnSecondary:pressed { background: #475569; }
             QLabel#recentHeader { font-size: 13px; font-weight: 700; color: #475569; letter-spacing: 1px; }
-            QPushButton#recentClearBtn {
-                background: transparent; color: #475569; border: none;
-                font-size: 13px; font-weight: 600; padding: 0 2px;
-            }
-            QPushButton#recentClearBtn:hover   { color: #ef4444; }
-            QPushButton#recentClearBtn:pressed { color: #dc2626; }
             QFrame#recentRow { background: #1e293b; border: 1px solid #334155; border-radius: 10px; }
             QFrame#recentRow:hover { background: #1e3a5f; border-color: #3b82f6; }
             QLabel#recentName { font-size: 15px; font-weight: 600; color: #e2e8f0; }
             QLabel#recentPath { font-size: 13px; color: #475569; }
             QLabel#recentAge  { font-size: 13px; color: #475569; }
-            QPushButton#recentRemoveBtn {
-                background: transparent; color: #334155; border: none;
-                font-size: 16px; border-radius: 4px; padding: 0;
-            }
-            QPushButton#recentRemoveBtn:hover   { background: #450a0a; color: #ef4444; }
-            QPushButton#recentRemoveBtn:pressed { background: #7f1d1d; color: #fca5a5; }
             QLabel#noRecent   { font-size: 15px; color: #475569; padding: 20px; }
             /* Table */
             QFrame#tableFrame {
@@ -1468,6 +1780,9 @@ class MainWindow(QMainWindow):
                 border: 1px solid #b45309; border-radius: 4px;
                 font-size: 12px; font-weight: 600; padding: 0 7px;
             }
+            QLabel#mvnArtifactId { color: #e2e8f0; font-size: 14px; font-weight: 600; background: transparent; }
+            QLabel#mvnGroupId    { color: #475569; font-size: 12px; background: transparent; }
+            QLabel#mvnManaged    { color: #334155; font-size: 13px; font-style: italic; background: transparent; }
             /* Scrollbars */
             QScrollBar:vertical   { background: transparent; width: 8px;  margin: 4px 2px; }
             QScrollBar:horizontal { background: transparent; height: 8px; margin: 2px 4px; }
@@ -1528,25 +1843,6 @@ class MainWindow(QMainWindow):
             QPushButton#btnPurple:hover    { background: #7c3aed; }
             QPushButton#btnPurple:pressed  { background: #6d28d9; }
             QPushButton#btnPurple:disabled { background: #3b0764; }
-            QPushButton#btnUpdateAllMain {
-                background: #8b5cf6; color: #ffffff; border: none;
-                border-top-left-radius: 7px; border-bottom-left-radius: 7px;
-                border-top-right-radius: 0; border-bottom-right-radius: 0;
-                padding: 7px 14px; font-weight: 600; min-height: 32px;
-            }
-            QPushButton#btnUpdateAllMain:hover   { background: #7c3aed; }
-            QPushButton#btnUpdateAllMain:pressed { background: #6d28d9; }
-            QPushButton#btnUpdateAllMain:disabled { background: #3b0764; color: #6d28d9; }
-            QPushButton#btnUpdateAllArrow {
-                background: #8b5cf6; color: #ffffff; border: none;
-                border-top-right-radius: 7px; border-bottom-right-radius: 7px;
-                border-top-left-radius: 0; border-bottom-left-radius: 0;
-                border-left: 1px solid #6d28d9;
-                padding: 0; font-size: 14px; min-height: 32px;
-            }
-            QPushButton#btnUpdateAllArrow:hover   { background: #7c3aed; }
-            QPushButton#btnUpdateAllArrow:pressed { background: #6d28d9; }
-            QPushButton#btnUpdateAllArrow:disabled { background: #3b0764; color: #4c1d95; border-left-color: #4c1d95; }
             QPushButton#btnDanger {
                 background: #ef4444; color: #ffffff; border: none;
                 border-radius: 7px; padding: 7px 18px; font-weight: 600; min-height: 32px;
