@@ -64,16 +64,23 @@ def _nvm_bin_dirs() -> list[str]:
 def node_path_env() -> dict:
     """Return ``os.environ`` with common node/npm install dirs prepended to PATH."""
     env = os.environ.copy()
+    home = os.path.expanduser("~")
 
     extras: list[str] = [
-        "/usr/local/bin",     # Homebrew on Intel Macs / classic installs
-        "/opt/homebrew/bin",  # Homebrew on Apple Silicon
+        "/usr/local/bin",                                    # Homebrew Intel / classic
+        "/opt/homebrew/bin",                                 # Homebrew Apple Silicon
         "/opt/homebrew/sbin",
-        *_nvm_bin_dirs(),     # nvm-managed versions
+        "/opt/local/bin",                                    # MacPorts
+        f"{home}/.volta/bin",                                # Volta
+        f"{home}/.local/share/fnm/aliases/default/bin",     # fnm
+        f"{home}/.asdf/shims",                               # asdf
+        f"{home}/.nodenv/shims",                             # nodenv
+        *_nvm_bin_dirs(),                                    # nvm
     ]
 
     current = env.get("PATH", "")
-    current_parts = set(current.split(":"))
+    current_parts = set(current.split(os.pathsep))
     new_parts = [p for p in extras if p not in current_parts]
-    env["PATH"] = ":".join(new_parts) + (":" if new_parts else "") + current
+    if new_parts:
+        env["PATH"] = os.pathsep.join(new_parts) + os.pathsep + current
     return env

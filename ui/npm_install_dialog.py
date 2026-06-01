@@ -8,6 +8,7 @@ on top — no separate OS window or title bar.
 from __future__ import annotations
 
 import re
+import shutil
 import sys
 
 from PyQt6.QtCore import QEvent, QProcess, QProcessEnvironment, Qt, pyqtSignal
@@ -149,12 +150,11 @@ class NpmInstallDialog(QWidget):
         self._process = QProcess(self)
         self._process.setWorkingDirectory(self._project_dir)
 
-        # Ensure node/npm are findable on macOS GUI apps where PATH is minimal
+        env = node_path_env()
         proc_env = QProcessEnvironment.systemEnvironment()
-        proc_env.insert("PATH", node_path_env()["PATH"])
+        proc_env.insert("PATH", env["PATH"])
         self._process.setProcessEnvironment(proc_env)
 
-        # Merge stdout + stderr into one stream
         self._process.setProcessChannelMode(
             QProcess.ProcessChannelMode.MergedChannels
         )
@@ -164,7 +164,10 @@ class NpmInstallDialog(QWidget):
         if sys.platform == "win32":
             self._process.start("cmd.exe", ["/c", "npm", "install"])
         else:
-            self._process.start("npm", ["install"])
+            # Resolve to absolute path so QProcess doesn't rely on its own
+            # PATH lookup, which can fail in packaged .app bundles on macOS.
+            npm = shutil.which("npm", path=env["PATH"]) or "npm"
+            self._process.start(npm, ["install"])
 
         if not self._process.waitForStarted(3000):
             self._on_failed_to_start()
