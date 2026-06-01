@@ -15,6 +15,7 @@ from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import QApplication, QStyleFactory
 from PyQt6.QtCore import Qt
 from ui.main_window import MainWindow
+from _version import VERSION
 
 _ROOT = os.path.dirname(os.path.abspath(__file__))
 
@@ -35,7 +36,7 @@ def main() -> None:
 
     app.setApplicationName("Package.json Updater")
     app.setOrganizationName("42nl")
-    app.setApplicationVersion("1.0.0")
+    app.setApplicationVersion(VERSION)
 
     icon = QIcon(_asset("app_icon.svg"))
     app.setWindowIcon(icon)   # dock / taskbar

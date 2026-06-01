@@ -16,6 +16,7 @@ dist/
 *.egg-info/
 *.egg
 *.spec
+!release/*.spec
 
 # PyInstaller output
 *.app/

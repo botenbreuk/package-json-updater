@@ -1,0 +1,87 @@
+name: Build & Release
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact_name: PackageJsonUpdater-linux
+          - os: macos-latest
+            artifact_name: PackageJsonUpdater-macos
+          - os: windows-latest
+            artifact_name: PackageJsonUpdater-windows
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Python dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build with PyInstaller
+        run: pyinstaller release/package_json_updater.spec --distpath dist --workpath build --noconfirm
+
+      - name: Ad-hoc sign macOS app
+        if: runner.os == 'macOS'
+        run: codesign --force --deep --sign - dist/PackageJsonUpdater.app
+
+      - name: Create macOS archive
+        if: runner.os == 'macOS'
+        run: ditto -c -k --keepParent dist/PackageJsonUpdater.app dist/PackageJsonUpdater-macos.zip
+
+      - name: Upload artifact (macOS)
+        if: runner.os == 'macOS'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: dist/PackageJsonUpdater-macos.zip
+
+      - name: Upload artifact (Linux)
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: dist/PackageJsonUpdater
+
+      - name: Upload artifact (Windows)
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: dist/PackageJsonUpdater.exe
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            artifacts/PackageJsonUpdater-macos/PackageJsonUpdater-macos.zip
+            artifacts/PackageJsonUpdater-linux/PackageJsonUpdater
+            artifacts/PackageJsonUpdater-windows/PackageJsonUpdater.exe

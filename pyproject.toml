@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "package-json-updater"
+version = "1.0.0"
+description = "Desktop application for managing npm package dependencies"
+requires-python = ">=3.11"
+dependencies = [
+    "PyQt6>=6.6.0",
+    "requests>=2.31.0",
+    "packaging>=23.0",
+]
+
+[project.scripts]
+package-json-updater = "main:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["core*", "models*", "ui*", "workers*"]
+
+[tool.setuptools.package-data]
+"*" = ["assets/*"]
