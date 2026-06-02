@@ -96,12 +96,5 @@ if [[ "$PUSH_ANSWER" =~ ^[Yy]$ ]]; then
   echo "✓  Pushed $BRANCH and v$NEW_VERSION to origin"
 fi
 
-# ── build ──────────────────────────────────────────────────────────────────────
-read -p "Build the app now? [Y/n] " BUILD_ANSWER
-BUILD_ANSWER=${BUILD_ANSWER:-Y}
-if [[ "$BUILD_ANSWER" =~ ^[Yy]$ ]]; then
-  bash "$SCRIPT_DIR/release/build.sh"
-fi
-
 echo ""
 echo "=== Released v$NEW_VERSION ==="
