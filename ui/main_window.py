@@ -277,13 +277,33 @@ class MainWindow(QMainWindow):
         row.setContentsMargins(0, 4, 0, 0)
         row.setSpacing(8)
 
-        self._btn_update_selected = QPushButton("Update Selected")
-        self._btn_update_selected.setObjectName("btnBlue")
+        # Split button for Update Selected
+        split_selected = QWidget()
+        split_selected.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground)
+        split_selected.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        split_selected.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
+        split_selected_lo = QHBoxLayout(split_selected)
+        split_selected_lo.setContentsMargins(0, 0, 0, 0)
+        split_selected_lo.setSpacing(0)
+
+        self._btn_update_selected = QPushButton("Update Selected  ·  Patch / Minor")
+        self._btn_update_selected.setObjectName("btnBlueMain")
         self._btn_update_selected.setFixedHeight(46)
         self._btn_update_selected.setEnabled(False)
         self._btn_update_selected.setCursor(Qt.CursorShape.PointingHandCursor)
         self._btn_update_selected.clicked.connect(self._update_selected)
-        row.addWidget(self._btn_update_selected)
+        split_selected_lo.addWidget(self._btn_update_selected)
+
+        self._btn_update_selected_arrow = QPushButton("▾")
+        self._btn_update_selected_arrow.setObjectName("btnBlueArrow")
+        self._btn_update_selected_arrow.setEnabled(False)
+        self._btn_update_selected_arrow.setFixedSize(26, 46)
+        self._btn_update_selected_arrow.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn_update_selected_arrow.setToolTip("Choose update scope")
+        self._btn_update_selected_arrow.clicked.connect(self._show_update_selected_mode_menu)
+        split_selected_lo.addWidget(self._btn_update_selected_arrow)
+
+        row.addWidget(split_selected)
 
         self._update_mode = "patch_minor"
 
@@ -467,6 +487,8 @@ class MainWindow(QMainWindow):
         self._file_label.setVisible(visible)
         self._act_open.setVisible(not visible)
         self._act_open_folder.setVisible(not visible)
+        if not visible:
+            self._table.set_header_check_state(False)
 
     # ── pending-install persistence ───────────────────────────────────────────
 
@@ -573,7 +595,8 @@ class MainWindow(QMainWindow):
                 dep.needs_install = True
         self._table.populate(deps)
         self._table.set_hide_uptodate(self._hide_uptodate_cb.isChecked())
-        self._btn_update_selected.setEnabled(False)   # all checkboxes reset by populate
+        self._btn_update_selected.setEnabled(False)       # all checkboxes reset by populate
+        self._btn_update_selected_arrow.setEnabled(False)
         self._btn_npm_install.setEnabled(True)
         self._set_chrome_visible(True)
         self._stack.setCurrentIndex(1)
@@ -589,6 +612,7 @@ class MainWindow(QMainWindow):
         self._deps = []
         self._table.populate([])
         self._btn_update_selected.setEnabled(False)
+        self._btn_update_selected_arrow.setEnabled(False)
         self._btn_update_all.setEnabled(False)
         self._btn_update_all_arrow.setEnabled(False)
         self._btn_npm_install.setEnabled(False)
@@ -620,6 +644,7 @@ class MainWindow(QMainWindow):
         self._progress.setVisible(True)
         self._btn_update_all.setEnabled(False)
         self._btn_update_all_arrow.setEnabled(False)
+        self._table.set_header_check_state(False)
         self._table.set_checkboxes_enabled(False)
 
         self._worker = FetchWorker(
@@ -700,6 +725,7 @@ class MainWindow(QMainWindow):
         self._btn_update_all.setEnabled(True)
         self._btn_update_all_arrow.setEnabled(True)
         self._table.set_checkboxes_enabled(True)
+        self._update_select_all_state()
         # Update Selected is enabled by checkbox selection, not fetch completion.
         self._update_count_label()
 
@@ -773,9 +799,15 @@ class MainWindow(QMainWindow):
 
     def _on_selection_changed(self) -> None:
         """Enable / disable Update Selected based on checkbox state."""
-        self._btn_update_selected.setEnabled(
-            bool(self._table.get_selected_deps())
-        )
+        has_selection = bool(self._table.get_selected_deps())
+        self._btn_update_selected.setEnabled(has_selection)
+        self._btn_update_selected_arrow.setEnabled(has_selection)
+        self._update_select_all_state()
+
+    def _update_select_all_state(self) -> None:
+        selected = len(self._table.get_selected_deps())
+        selectable = self._table.get_selectable_count()
+        self._table.set_header_check_state(selectable > 0 and selected == selectable)
 
     def _set_update_mode(self, mode: str) -> None:
         self._update_mode = mode
@@ -783,9 +815,16 @@ class MainWindow(QMainWindow):
         self._act_all_major.setChecked(mode == "all")
         label = "Patch / Minor" if mode == "patch_minor" else "All incl. Major"
         self._btn_update_all.setText(f"Update All  ·  {label}")
+        self._btn_update_selected.setText(f"Update Selected  ·  {label}")
 
     def _show_update_mode_menu(self) -> None:
         btn = self._btn_update_all_arrow
+        self._update_mode_menu.exec(
+            btn.mapToGlobal(btn.rect().bottomLeft())
+        )
+
+    def _show_update_selected_mode_menu(self) -> None:
+        btn = self._btn_update_selected_arrow
         self._update_mode_menu.exec(
             btn.mapToGlobal(btn.rect().bottomLeft())
         )
@@ -1176,14 +1215,32 @@ class MainWindow(QMainWindow):
             QPushButton#tableCheckbox:checked  { background: #3b82f6; border-color: #3b82f6; image: url(§CB_C§); }
             QPushButton#tableCheckbox:disabled { border-color: #e2e8f0; background: #f1f5f9; }
             /* Action bar */
-            QFrame#actionSep { color: #e2e8f0; background: #e2e8f0; max-height: 1px; border: none; }
-            QPushButton#btnBlue {
+            QFrame#actionSep { color: #e2e8f0; background: #e2e8f0; max-height: 1px; border: none; }            QPushButton#btnBlue {
                 background: #3b82f6; color: #ffffff; border: none;
                 border-radius: 7px; padding: 7px 18px; font-weight: 600; min-height: 32px;
             }
             QPushButton#btnBlue:hover     { background: #2563eb; }
             QPushButton#btnBlue:pressed   { background: #1d4ed8; }
             QPushButton#btnBlue:disabled  { background: #bfdbfe; }
+            QPushButton#btnBlueMain {
+                background: #3b82f6; color: #ffffff; border: none;
+                border-top-left-radius: 7px; border-bottom-left-radius: 7px;
+                border-top-right-radius: 0; border-bottom-right-radius: 0;
+                padding: 7px 14px; font-weight: 600; min-height: 32px;
+            }
+            QPushButton#btnBlueMain:hover   { background: #2563eb; }
+            QPushButton#btnBlueMain:pressed { background: #1d4ed8; }
+            QPushButton#btnBlueMain:disabled { background: #bfdbfe; color: #93c5fd; }
+            QPushButton#btnBlueArrow {
+                background: #3b82f6; color: #ffffff; border: none;
+                border-top-right-radius: 7px; border-bottom-right-radius: 7px;
+                border-top-left-radius: 0; border-bottom-left-radius: 0;
+                border-left: 1px solid #93c5fd;
+                padding: 0; font-size: 14px; min-height: 32px;
+            }
+            QPushButton#btnBlueArrow:hover   { background: #2563eb; }
+            QPushButton#btnBlueArrow:pressed { background: #1d4ed8; }
+            QPushButton#btnBlueArrow:disabled { background: #bfdbfe; color: #93c5fd; border-left-color: #bfdbfe; }
             QPushButton#btnPurple {
                 background: #8b5cf6; color: #ffffff; border: none;
                 border-radius: 7px; padding: 7px 18px; font-weight: 600; min-height: 32px;
@@ -1533,6 +1590,7 @@ class MainWindow(QMainWindow):
             QPushButton#tableCheckbox:disabled { border-color: #334155; }
             /* Action bar */
             QFrame#actionSep { color: #334155; background: #334155; max-height: 1px; border: none; }
+            QFrame#filterVSep { color: #334155; background: #334155; max-width: 1px; border: none; }
             QPushButton#btnBlue {
                 background: #3b82f6; color: #ffffff; border: none;
                 border-radius: 7px; padding: 7px 18px; font-weight: 600; min-height: 32px;
@@ -1540,6 +1598,25 @@ class MainWindow(QMainWindow):
             QPushButton#btnBlue:hover     { background: #2563eb; }
             QPushButton#btnBlue:pressed   { background: #1d4ed8; }
             QPushButton#btnBlue:disabled  { background: #1e3a8a; }
+            QPushButton#btnBlueMain {
+                background: #3b82f6; color: #ffffff; border: none;
+                border-top-left-radius: 7px; border-bottom-left-radius: 7px;
+                border-top-right-radius: 0; border-bottom-right-radius: 0;
+                padding: 7px 14px; font-weight: 600; min-height: 32px;
+            }
+            QPushButton#btnBlueMain:hover   { background: #2563eb; }
+            QPushButton#btnBlueMain:pressed { background: #1d4ed8; }
+            QPushButton#btnBlueMain:disabled { background: #1e3a8a; color: #3b82f6; }
+            QPushButton#btnBlueArrow {
+                background: #3b82f6; color: #ffffff; border: none;
+                border-top-right-radius: 7px; border-bottom-right-radius: 7px;
+                border-top-left-radius: 0; border-bottom-left-radius: 0;
+                border-left: 1px solid #60a5fa;
+                padding: 0; font-size: 14px; min-height: 32px;
+            }
+            QPushButton#btnBlueArrow:hover   { background: #2563eb; }
+            QPushButton#btnBlueArrow:pressed { background: #1d4ed8; }
+            QPushButton#btnBlueArrow:disabled { background: #1e3a8a; color: #3b82f6; border-left-color: #1e3a8a; }
             QPushButton#btnPurple {
                 background: #8b5cf6; color: #ffffff; border: none;
                 border-radius: 7px; padding: 7px 18px; font-weight: 600; min-height: 32px;

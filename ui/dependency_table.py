@@ -154,6 +154,17 @@ class DependencyTable(QTableWidget):
         self._empty_lbl.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         self._empty_lbl.hide()
 
+        hh = self.horizontalHeader()
+        self._header_checkbox = QPushButton(hh.viewport())
+        self._header_checkbox.setObjectName("tableCheckbox")
+        self._header_checkbox.setCheckable(True)
+        self._header_checkbox.setFixedSize(20, 20)
+        self._header_checkbox.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._header_checkbox.setToolTip("Select / deselect all")
+        self._header_checkbox.toggled.connect(self._on_header_checkbox_toggled)
+        hh.sectionResized.connect(lambda *_: self._reposition_header_checkbox())
+        self._reposition_header_checkbox()
+
     # ── setup ────────────────────────────────────────────────────────────────
 
     def _setup_table(self) -> None:
@@ -188,12 +199,17 @@ class DependencyTable(QTableWidget):
 
     def populate(self, deps: list[DependencyInfo]) -> None:
         """Build the table from scratch."""
-        self._deps = deps
-        self._row_map = {}
-        self.setRowCount(0)
-        for dep in deps:
-            self._add_row(dep)
-        self._apply_filters()
+        self.setUpdatesEnabled(False)
+        try:
+            self.set_header_check_state(False)
+            self._deps = deps
+            self._row_map = {}
+            self.setRowCount(0)
+            for dep in deps:
+                self._add_row(dep)
+            self._apply_filters()
+        finally:
+            self.setUpdatesEnabled(True)
 
     def update_row(self, dep: DependencyInfo) -> None:
         """Refresh the Current cell, Type badge, and version cells for *dep*."""
@@ -237,19 +253,67 @@ class DependencyTable(QTableWidget):
         return list(self._deps)
 
     def set_checkboxes_enabled(self, enabled: bool) -> None:
-        """Enable or disable every row's select checkbox."""
+        """Enable or disable row checkboxes; when enabling, up-to-date deps stay disabled."""
         for dep in self._deps:
             row = self._row_map.get((dep.name, dep.group))
             if row is None:
                 continue
             cb = self._row_checkbox(row)
             if cb:
-                cb.setEnabled(enabled)
+                if enabled:
+                    can_select = dep.has_any_update or dep.needs_install or dep.fetch_status != "done"
+                    cb.setEnabled(can_select)
+                    if not can_select and cb.isChecked():
+                        cb.setChecked(False)
+                else:
+                    cb.setEnabled(False)
+
+    def select_all(self, checked: bool) -> None:
+        """Check or uncheck all visible, enabled row checkboxes."""
+        for dep in self._deps:
+            row = self._row_map.get((dep.name, dep.group))
+            if row is None or self.isRowHidden(row):
+                continue
+            cb = self._row_checkbox(row)
+            if cb and cb.isEnabled():
+                cb.blockSignals(True)
+                cb.setChecked(checked)
+                cb.blockSignals(False)
+        self.selection_changed.emit()
+
+    def set_header_check_state(self, checked: bool) -> None:
+        self._header_checkbox.blockSignals(True)
+        self._header_checkbox.setChecked(checked)
+        self._header_checkbox.blockSignals(False)
+
+    def _on_header_checkbox_toggled(self, checked: bool) -> None:
+        self.select_all(checked)
+
+    def _reposition_header_checkbox(self) -> None:
+        hh = self.horizontalHeader()
+        x0 = hh.sectionViewportPosition(COL_SELECT)
+        w = hh.sectionSize(COL_SELECT)
+        h = hh.height()
+        cb = self._header_checkbox
+        cb.move(x0 + (w - cb.width()) // 2, max(0, (h - cb.height()) // 2))
+
+    def get_selectable_count(self) -> int:
+        """Return number of visible, enabled checkboxes."""
+        count = 0
+        for dep in self._deps:
+            row = self._row_map.get((dep.name, dep.group))
+            if row is None or self.isRowHidden(row):
+                continue
+            cb = self._row_checkbox(row)
+            if cb and cb.isEnabled():
+                count += 1
+        return count
 
     def resizeEvent(self, event) -> None:  # type: ignore[override]
         super().resizeEvent(event)
         if self._empty_lbl.isVisible():
             self._empty_lbl.setGeometry(self.viewport().rect())
+        self._reposition_header_checkbox()
 
     def set_dark(self, dark: bool) -> None:
         self._dark = dark
@@ -292,7 +356,7 @@ class DependencyTable(QTableWidget):
         chk.setCheckable(True)
         chk.setFixedSize(20, 20)
         chk.setCursor(Qt.CursorShape.PointingHandCursor)
-        chk.toggled.connect(lambda _checked: self.selection_changed.emit())
+        chk.toggled.connect(lambda _: self.selection_changed.emit())
         chk_layout.addWidget(chk)
         self.setCellWidget(row, COL_SELECT, chk_container)
 
