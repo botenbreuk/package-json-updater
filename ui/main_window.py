@@ -197,14 +197,14 @@ class MainWindow(QMainWindow):
         tb.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         self.addToolBar(tb)
 
-        act_open = QAction("📂  Open package.json", self)
-        act_open.setShortcut(QKeySequence.StandardKey.Open)
-        act_open.triggered.connect(self._browse_file)
-        tb.addAction(act_open)
+        self._act_open = QAction("📂  Open package.json", self)
+        self._act_open.setShortcut(QKeySequence.StandardKey.Open)
+        self._act_open.triggered.connect(self._browse_file)
+        tb.addAction(self._act_open)
 
-        act_open_folder = QAction("📁  Open Folder", self)
-        act_open_folder.triggered.connect(self._browse_folder)
-        tb.addAction(act_open_folder)
+        self._act_open_folder = QAction("📁  Open Folder", self)
+        self._act_open_folder.triggered.connect(self._browse_folder)
+        tb.addAction(self._act_open_folder)
 
         act_refresh = QAction("↺  Refresh", self)
         act_refresh.setShortcut(QKeySequence.StandardKey.Refresh)
@@ -465,6 +465,8 @@ class MainWindow(QMainWindow):
         self._act_refresh.setVisible(visible)
         self._act_close.setVisible(visible)
         self._file_label.setVisible(visible)
+        self._act_open.setVisible(not visible)
+        self._act_open_folder.setVisible(not visible)
 
     # ── pending-install persistence ───────────────────────────────────────────
 
