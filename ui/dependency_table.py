@@ -373,7 +373,7 @@ class DependencyTable(QTableWidget):
         npm_url = f"https://www.npmjs.com/package/{dep.name}"
         npm_btn = QPushButton("npm ↗")
         npm_btn.setObjectName("pkgLinkBtn")
-        npm_btn.setFixedHeight(22)
+        npm_btn.setFixedHeight(24)
         npm_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         npm_btn.setToolTip(npm_url)
         npm_btn.clicked.connect(lambda _=False, u=npm_url: QDesktopServices.openUrl(QUrl(u)))
@@ -382,7 +382,7 @@ class DependencyTable(QTableWidget):
         if dep.repo_url:
             repo_btn = QPushButton(_repo_label(dep.repo_url))
             repo_btn.setObjectName("pkgLinkBtn")
-            repo_btn.setFixedHeight(22)
+            repo_btn.setFixedHeight(24)
             repo_btn.setCursor(Qt.CursorShape.PointingHandCursor)
             repo_btn.setToolTip(dep.repo_url)
             url = dep.repo_url

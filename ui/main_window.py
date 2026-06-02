@@ -279,6 +279,7 @@ class MainWindow(QMainWindow):
 
         self._btn_update_selected = QPushButton("Update Selected")
         self._btn_update_selected.setObjectName("btnBlue")
+        self._btn_update_selected.setFixedHeight(46)
         self._btn_update_selected.setEnabled(False)
         self._btn_update_selected.setCursor(Qt.CursorShape.PointingHandCursor)
         self._btn_update_selected.clicked.connect(self._update_selected)
@@ -297,6 +298,7 @@ class MainWindow(QMainWindow):
 
         self._btn_update_all = QPushButton("Update All  ·  Patch / Minor")
         self._btn_update_all.setObjectName("btnUpdateAllMain")
+        self._btn_update_all.setFixedHeight(46)
         self._btn_update_all.setEnabled(False)
         self._btn_update_all.setCursor(Qt.CursorShape.PointingHandCursor)
         self._btn_update_all.clicked.connect(self._update_all)
@@ -305,8 +307,7 @@ class MainWindow(QMainWindow):
         self._btn_update_all_arrow = QPushButton("▾")
         self._btn_update_all_arrow.setObjectName("btnUpdateAllArrow")
         self._btn_update_all_arrow.setEnabled(False)
-        self._btn_update_all_arrow.setFixedWidth(26)
-        self._btn_update_all_arrow.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding)
+        self._btn_update_all_arrow.setFixedSize(26, 46)
         self._btn_update_all_arrow.setCursor(Qt.CursorShape.PointingHandCursor)
         self._btn_update_all_arrow.setToolTip("Choose update scope")
         self._btn_update_all_arrow.clicked.connect(self._show_update_mode_menu)
@@ -325,12 +326,11 @@ class MainWindow(QMainWindow):
 
         self._btn_npm_install = QPushButton("📦  npm install")
         self._btn_npm_install.setObjectName("btnNpmInstall")
+        self._btn_npm_install.setFixedHeight(46)
         self._btn_npm_install.setEnabled(False)
         self._btn_npm_install.setCursor(Qt.CursorShape.PointingHandCursor)
         self._btn_npm_install.setToolTip("Run npm install in the project directory")
         self._btn_npm_install.clicked.connect(self._run_npm_install)
-        row.addWidget(self._btn_npm_install)
-
         row.addStretch()
 
         self._progress = QProgressBar()
@@ -339,6 +339,7 @@ class MainWindow(QMainWindow):
         self._progress.setMaximumHeight(6)
         self._progress.setTextVisible(False)
         row.addWidget(self._progress)
+        row.addWidget(self._btn_npm_install)
 
         layout.addLayout(row)
 
@@ -1055,7 +1056,7 @@ class MainWindow(QMainWindow):
             QPushButton#startBtnSecondary {
                 background: #ffffff; color: #334155;
                 border: 1.5px solid #e2e8f0; border-radius: 8px;
-                padding: 10px 22px; font-weight: 600; min-width: 140px;
+                padding: 8.5px 22px; font-weight: 600; min-width: 140px;
             }
             QPushButton#startBtnSecondary:hover   { background: #f1f5f9; border-color: #94a3b8; }
             QPushButton#startBtnSecondary:pressed { background: #e2e8f0; }
@@ -1072,7 +1073,7 @@ class MainWindow(QMainWindow):
             QLabel#recentPath { font-size: 13px; color: #94a3b8; }
             QLabel#recentAge  { font-size: 13px; color: #64748b; }
             QPushButton#recentRemoveBtn {
-                background: transparent; color: #cbd5e1; border: none;
+                background: transparent; color: #64748b; border: none;
                 font-size: 16px; border-radius: 4px; padding: 0;
             }
             QPushButton#recentRemoveBtn:hover   { background: #fee2e2; color: #ef4444; }
@@ -1103,7 +1104,7 @@ class MainWindow(QMainWindow):
             QPushButton#pkgLinkBtn {
                 background: #eff6ff; border: 1px solid #bfdbfe;
                 color: #3b82f6; font-size: 12px; font-weight: 600;
-                border-radius: 4px; padding: 0 7px;
+                border-radius: 6px; padding: 0 7px;
             }
             QPushButton#pkgLinkBtn:hover   { background: #dbeafe; border-color: #93c5fd; color: #1d4ed8; }
             QPushButton#pkgLinkBtn:pressed { background: #bfdbfe; border-color: #60a5fa; color: #1e40af; }
@@ -1213,10 +1214,10 @@ class MainWindow(QMainWindow):
             /* npm install button */
             QPushButton#btnNpmInstall {
                 background: #f1f5f9; color: #334155;
-                border: 1.5px solid #e2e8f0; border-radius: 7px;
-                padding: 7px 18px; font-weight: 600; min-height: 32px;
+                border: 1.5px solid #94a3b8; border-radius: 7px;
+                padding: 7px 18px; font-weight: 600; min-height: 29px;
             }
-            QPushButton#btnNpmInstall:hover    { background: #e2e8f0; border-color: #94a3b8; }
+            QPushButton#btnNpmInstall:hover    { background: #e2e8f0; border-color: #64748b; }
             QPushButton#btnNpmInstall:pressed  { background: #cbd5e1; }
             QPushButton#btnNpmInstall:disabled { background: #f8fafc; color: #94a3b8; border-color: #e2e8f0; }
             /* npm install modal */
@@ -1411,7 +1412,7 @@ class MainWindow(QMainWindow):
             QPushButton#startBtnSecondary {
                 background: #1e293b; color: #cbd5e1;
                 border: 1.5px solid #334155; border-radius: 8px;
-                padding: 10px 22px; font-weight: 600; min-width: 140px;
+                padding: 8.5px 22px; font-weight: 600; min-width: 140px;
             }
             QPushButton#startBtnSecondary:hover   { background: #334155; border-color: #475569; }
             QPushButton#startBtnSecondary:pressed { background: #475569; }
@@ -1428,7 +1429,7 @@ class MainWindow(QMainWindow):
             QLabel#recentPath { font-size: 13px; color: #475569; }
             QLabel#recentAge  { font-size: 13px; color: #475569; }
             QPushButton#recentRemoveBtn {
-                background: transparent; color: #334155; border: none;
+                background: transparent; color: #94a3b8; border: none;
                 font-size: 16px; border-radius: 4px; padding: 0;
             }
             QPushButton#recentRemoveBtn:hover   { background: #450a0a; color: #ef4444; }
@@ -1459,7 +1460,7 @@ class MainWindow(QMainWindow):
             QPushButton#pkgLinkBtn {
                 background: #1e3a5f; border: 1px solid #2563eb;
                 color: #93c5fd; font-size: 12px; font-weight: 600;
-                border-radius: 4px; padding: 0 7px;
+                border-radius: 6px; padding: 0 7px;
             }
             QPushButton#pkgLinkBtn:hover   { background: #1d4ed8; border-color: #3b82f6; color: #ffffff; }
             QPushButton#pkgLinkBtn:pressed { background: #1e40af; border-color: #60a5fa; color: #ffffff; }
@@ -1570,7 +1571,7 @@ class MainWindow(QMainWindow):
             QPushButton#btnNpmInstall {
                 background: #1e293b; color: #cbd5e1;
                 border: 1.5px solid #334155; border-radius: 7px;
-                padding: 7px 18px; font-weight: 600; min-height: 32px;
+                padding: 7px 18px; font-weight: 600; min-height: 29px;
             }
             QPushButton#btnNpmInstall:hover    { background: #334155; border-color: #475569; }
             QPushButton#btnNpmInstall:pressed  { background: #475569; }
