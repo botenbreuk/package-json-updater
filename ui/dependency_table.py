@@ -140,7 +140,7 @@ class DependencyTable(QTableWidget):
     def __init__(self, parent=None) -> None:
         super().__init__(0, len(HEADERS), parent)
         self._deps: list[DependencyInfo] = []
-        self._row_map: dict[str, int] = {}       # dep.name → row index
+        self._row_map: dict[tuple[str, str], int] = {}   # (dep.name, dep.group) → row index
         self._filter_group: Optional[str] = None
         self._hide_uptodate: bool = False
         self._merge_patch_minor: bool = False
@@ -197,7 +197,7 @@ class DependencyTable(QTableWidget):
 
     def update_row(self, dep: DependencyInfo) -> None:
         """Refresh the Current cell, Type badge, and version cells for *dep*."""
-        row = self._row_map.get(dep.name)
+        row = self._row_map.get((dep.name, dep.group))
         if row is None:
             return
         self._refresh_current_cell(row, dep)
@@ -219,7 +219,7 @@ class DependencyTable(QTableWidget):
         """Return all deps whose checkbox is checked."""
         result = []
         for dep in self._deps:
-            row = self._row_map.get(dep.name)
+            row = self._row_map.get((dep.name, dep.group))
             if row is None:
                 continue
             cb = self._row_checkbox(row)
@@ -239,7 +239,7 @@ class DependencyTable(QTableWidget):
     def set_checkboxes_enabled(self, enabled: bool) -> None:
         """Enable or disable every row's select checkbox."""
         for dep in self._deps:
-            row = self._row_map.get(dep.name)
+            row = self._row_map.get((dep.name, dep.group))
             if row is None:
                 continue
             cb = self._row_checkbox(row)
@@ -254,7 +254,7 @@ class DependencyTable(QTableWidget):
     def set_dark(self, dark: bool) -> None:
         self._dark = dark
         for dep in self._deps:
-            row = self._row_map.get(dep.name)
+            row = self._row_map.get((dep.name, dep.group))
             if row is not None:
                 self._update_group_badge(row, dep)
                 self._update_type_badge(row, dep)
@@ -269,7 +269,7 @@ class DependencyTable(QTableWidget):
         if header_item:
             header_item.setText("Minor / Patch ↑" if merge else "Minor ↑")
         for dep in self._deps:
-            row = self._row_map.get(dep.name)
+            row = self._row_map.get((dep.name, dep.group))
             if row is not None:
                 self._refresh_version_cells(row, dep)
 
@@ -278,7 +278,7 @@ class DependencyTable(QTableWidget):
     def _add_row(self, dep: DependencyInfo) -> None:
         row = self.rowCount()
         self.insertRow(row)
-        self._row_map[dep.name] = row
+        self._row_map[(dep.name, dep.group)] = row
 
         # ── checkbox ──────────────────────────────────────────────────────────
         chk_container = QWidget()
@@ -463,7 +463,7 @@ class DependencyTable(QTableWidget):
 
     def _apply_filters(self) -> None:
         for dep in self._deps:
-            row = self._row_map.get(dep.name)
+            row = self._row_map.get((dep.name, dep.group))
             if row is not None:
                 self._apply_filter_to_row(row, dep)
         self._update_empty_label()
@@ -478,9 +478,9 @@ class DependencyTable(QTableWidget):
 
     def _update_empty_label(self) -> None:
         any_visible = any(
-            not self.isRowHidden(self._row_map[dep.name])
+            not self.isRowHidden(self._row_map[(dep.name, dep.group)])
             for dep in self._deps
-            if dep.name in self._row_map
+            if (dep.name, dep.group) in self._row_map
         )
         show = bool(self._deps) and not any_visible
         self._empty_lbl.setVisible(show)

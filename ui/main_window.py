@@ -652,18 +652,16 @@ class MainWindow(QMainWindow):
         self._worker = None
 
     def _on_package_ready(self, name: str, updates: dict) -> None:
-        dep = self._dep_by_name(name)
-        if not dep:
-            return
-        dep.fetch_status = "done"
-        dep.latest_patch = updates.get("latest_patch")
-        dep.latest_minor = updates.get("latest_minor")
-        dep.latest_major = updates.get("latest_major")
-        dep.patch_age = updates.get("patch_age")
-        dep.minor_age = updates.get("minor_age")
-        dep.major_age = updates.get("major_age")
-        dep.repo_url = updates.get("repo_url")
-        self._table.update_row(dep)
+        for dep in self._deps_by_name(name):
+            dep.fetch_status = "done"
+            dep.latest_patch = updates.get("latest_patch")
+            dep.latest_minor = updates.get("latest_minor")
+            dep.latest_major = updates.get("latest_major")
+            dep.patch_age = updates.get("patch_age")
+            dep.minor_age = updates.get("minor_age")
+            dep.major_age = updates.get("major_age")
+            dep.repo_url = updates.get("repo_url")
+            self._table.update_row(dep)
 
     def _on_progress(self, completed: int, total: int) -> None:
         self._fetch_completed = completed
@@ -673,8 +671,7 @@ class MainWindow(QMainWindow):
         )
 
     def _on_fetch_error(self, name: str, message: str) -> None:
-        dep = self._dep_by_name(name)
-        if dep:
+        for dep in self._deps_by_name(name):
             dep.fetch_status = "error"
             dep.error_message = message
             self._table.update_row(dep)
@@ -987,6 +984,9 @@ class MainWindow(QMainWindow):
             if dep.name == name:
                 return dep
         return None
+
+    def _deps_by_name(self, name: str) -> list[DependencyInfo]:
+        return [dep for dep in self._deps if dep.name == name]
 
     def closeEvent(self, event) -> None:  # type: ignore[override]
         self._cancel_fetch()
