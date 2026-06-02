@@ -477,6 +477,18 @@ class MainWindow(QMainWindow):
             self._settings.pending_installs.pop(self._file_path, None)
         self._settings.save()
 
+    @staticmethod
+    def _install_ran_externally(path: str) -> bool:
+        """Return True if a lock file is newer than package.json, meaning npm install was run."""
+        pkg_mtime = os.path.getmtime(path)
+        directory = os.path.dirname(path)
+        lock_files = ["package-lock.json", "yarn.lock", "pnpm-lock.yaml"]
+        return any(
+            os.path.getmtime(os.path.join(directory, lf)) >= pkg_mtime
+            for lf in lock_files
+            if os.path.exists(os.path.join(directory, lf))
+        )
+
     # ── recents management ────────────────────────────────────────────────────
 
     def _on_recent_removed(self, path: str) -> None:
@@ -549,11 +561,15 @@ class MainWindow(QMainWindow):
         self._file_label.setFullText(path)
         self.setWindowTitle(f"Package.json Updater — {os.path.basename(os.path.dirname(path))}")
 
-        self._table.populate(deps)
-        self._pending_install_names |= set(self._settings.pending_installs.get(path, []))
+        self._pending_install_names = set(self._settings.pending_installs.get(path, []))
+        if self._pending_install_names and self._install_ran_externally(path):
+            self._pending_install_names.clear()
+            self._settings.pending_installs.pop(path, None)
+            self._settings.save()
         for dep in self._deps:
             if dep.name in self._pending_install_names:
                 dep.needs_install = True
+        self._table.populate(deps)
         self._table.set_hide_uptodate(self._hide_uptodate_cb.isChecked())
         self._btn_update_selected.setEnabled(False)   # all checkboxes reset by populate
         self._btn_npm_install.setEnabled(True)
