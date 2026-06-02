@@ -470,6 +470,8 @@ class SettingsPage(QWidget):
         self._settings.merge_patch_minor = checked
         self._settings.save()
         self.settings_changed.emit(self._settings)
+        central = self.window().centralWidget()
+        _FlashMessage("✓  Display setting saved", central or self)
 
     def _on_theme_selected(self, value: str) -> None:
         self._select_theme(value)
