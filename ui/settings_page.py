@@ -20,6 +20,7 @@ from PyQt6.QtWidgets import (
     QStackedWidget, QVBoxLayout, QWidget,
 )
 
+from _version import VERSION
 from models.settings import AppSettings
 
 
@@ -384,7 +385,7 @@ class SettingsPage(QWidget):
         s_layout.setSpacing(2)
 
         self._nav_btns: list[QPushButton] = []
-        for i, label in enumerate(("Theme", "Version Age Filter", "Version Cache", "Display")):
+        for i, label in enumerate(("Theme", "Version Age Filter", "Version Cache", "Display", "About")):
             btn = QPushButton(label)
             btn.setObjectName("settingsNavItem")
             btn.setCheckable(True)
@@ -410,11 +411,13 @@ class SettingsPage(QWidget):
         age_scroll     = self._build_age_panel()
         cache_scroll   = self._build_cache_panel()
         display_scroll = self._build_display_panel()
+        about_scroll   = self._build_about_panel()
         self._content_stack.addWidget(theme_scroll)
         self._content_stack.addWidget(age_scroll)
         self._content_stack.addWidget(cache_scroll)
         self._content_stack.addWidget(display_scroll)
-        self._panel_scrolls = [theme_scroll, age_scroll, cache_scroll, display_scroll]
+        self._content_stack.addWidget(about_scroll)
+        self._panel_scrolls = [theme_scroll, age_scroll, cache_scroll, display_scroll, about_scroll]
         body_layout.addWidget(self._content_stack, 1)
 
         root.addWidget(body, 1)
@@ -674,6 +677,32 @@ class SettingsPage(QWidget):
         self._merge_cb.setChecked(self._settings.merge_patch_minor)
         self._merge_cb.toggled.connect(self._on_merge_toggled)
         layout.addWidget(self._merge_cb)
+
+        layout.addStretch()
+        return self._wrap_scroll(inner)
+
+    def _build_about_panel(self) -> QScrollArea:
+        inner = QWidget()
+        layout = QVBoxLayout(inner)
+        layout.setContentsMargins(32, 28, 32, 28)
+        layout.setSpacing(12)
+
+        lbl = QLabel("About")
+        lbl.setObjectName("settingsPanelTitle")
+        layout.addWidget(lbl)
+
+        sep = QFrame()
+        sep.setObjectName("settingsPanelDivider")
+        sep.setFrameShape(QFrame.Shape.HLine)
+        layout.addWidget(sep)
+
+        name_lbl = QLabel("Package.json Updater")
+        name_lbl.setObjectName("settingsPanelSubtitle")
+        layout.addWidget(name_lbl)
+
+        version_lbl = QLabel(f"Version {VERSION}")
+        version_lbl.setObjectName("settingsPanelHint")
+        layout.addWidget(version_lbl)
 
         layout.addStretch()
         return self._wrap_scroll(inner)
