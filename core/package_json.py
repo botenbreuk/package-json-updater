@@ -34,6 +34,26 @@ def load(path: str) -> tuple[dict, list[DependencyInfo]]:
             continue
 
         for name, constraint in section.items():
+            if isinstance(constraint, dict) and group == "overrides":
+                # Nested override: {"parent-pkg": {"dep": "version"}}
+                for nested_name, nested_constraint in constraint.items():
+                    if not isinstance(nested_constraint, str):
+                        continue
+                    parsed = parse_constraint(nested_constraint)
+                    if parsed["type"] in ("any", "workspace", "local"):
+                        continue
+                    bare = parsed.get("version") or ""
+                    if not bare:
+                        continue
+                    deps.append(DependencyInfo(
+                        name=nested_name,
+                        group=group,
+                        raw_constraint=nested_constraint,
+                        current_version=bare,
+                        override_parent=name,
+                    ))
+                continue
+
             if not isinstance(constraint, str):
                 continue
 
@@ -74,10 +94,18 @@ def save(
 
     for dep, new_version in updates:
         group: Optional[dict] = data.get(dep.group)
-        if group is None or dep.name not in group:
+        if group is None:
             continue
         new_constraint = apply_prefix(dep.raw_constraint, new_version)
-        group[dep.name] = new_constraint
+        if dep.override_parent is not None:
+            parent = group.get(dep.override_parent)
+            if not isinstance(parent, dict) or dep.name not in parent:
+                continue
+            parent[dep.name] = new_constraint
+        else:
+            if dep.name not in group:
+                continue
+            group[dep.name] = new_constraint
 
     text = json.dumps(data, indent=2, ensure_ascii=False) + "\n"
     try:

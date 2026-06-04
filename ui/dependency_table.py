@@ -140,7 +140,7 @@ class DependencyTable(QTableWidget):
     def __init__(self, parent=None) -> None:
         super().__init__(0, len(HEADERS), parent)
         self._deps: list[DependencyInfo] = []
-        self._row_map: dict[tuple[str, str], int] = {}   # (dep.name, dep.group) → row index
+        self._row_map: dict[tuple, int] = {}   # dep.row_key → row index
         self._filter_group: Optional[str] = None
         self._hide_uptodate: bool = False
         self._merge_patch_minor: bool = False
@@ -213,7 +213,7 @@ class DependencyTable(QTableWidget):
 
     def update_row(self, dep: DependencyInfo) -> None:
         """Refresh the Current cell, Type badge, and version cells for *dep*."""
-        row = self._row_map.get((dep.name, dep.group))
+        row = self._row_map.get(dep.row_key)
         if row is None:
             return
         self._refresh_current_cell(row, dep)
@@ -235,7 +235,7 @@ class DependencyTable(QTableWidget):
         """Return all deps whose checkbox is checked."""
         result = []
         for dep in self._deps:
-            row = self._row_map.get((dep.name, dep.group))
+            row = self._row_map.get(dep.row_key)
             if row is None:
                 continue
             cb = self._row_checkbox(row)
@@ -255,7 +255,7 @@ class DependencyTable(QTableWidget):
     def set_checkboxes_enabled(self, enabled: bool) -> None:
         """Enable or disable row checkboxes; when enabling, up-to-date deps stay disabled."""
         for dep in self._deps:
-            row = self._row_map.get((dep.name, dep.group))
+            row = self._row_map.get(dep.row_key)
             if row is None:
                 continue
             cb = self._row_checkbox(row)
@@ -271,7 +271,7 @@ class DependencyTable(QTableWidget):
     def select_all(self, checked: bool) -> None:
         """Check or uncheck all visible, enabled row checkboxes."""
         for dep in self._deps:
-            row = self._row_map.get((dep.name, dep.group))
+            row = self._row_map.get(dep.row_key)
             if row is None or self.isRowHidden(row):
                 continue
             cb = self._row_checkbox(row)
@@ -301,7 +301,7 @@ class DependencyTable(QTableWidget):
         """Return number of visible, enabled checkboxes."""
         count = 0
         for dep in self._deps:
-            row = self._row_map.get((dep.name, dep.group))
+            row = self._row_map.get(dep.row_key)
             if row is None or self.isRowHidden(row):
                 continue
             cb = self._row_checkbox(row)
@@ -318,7 +318,7 @@ class DependencyTable(QTableWidget):
     def set_dark(self, dark: bool) -> None:
         self._dark = dark
         for dep in self._deps:
-            row = self._row_map.get((dep.name, dep.group))
+            row = self._row_map.get(dep.row_key)
             if row is not None:
                 self._update_group_badge(row, dep)
                 self._update_type_badge(row, dep)
@@ -333,7 +333,7 @@ class DependencyTable(QTableWidget):
         if header_item:
             header_item.setText("Minor / Patch ↑" if merge else "Minor ↑")
         for dep in self._deps:
-            row = self._row_map.get((dep.name, dep.group))
+            row = self._row_map.get(dep.row_key)
             if row is not None:
                 self._refresh_version_cells(row, dep)
 
@@ -342,7 +342,7 @@ class DependencyTable(QTableWidget):
     def _add_row(self, dep: DependencyInfo) -> None:
         row = self.rowCount()
         self.insertRow(row)
-        self._row_map[(dep.name, dep.group)] = row
+        self._row_map[dep.row_key] = row
 
         # ── checkbox ──────────────────────────────────────────────────────────
         chk_container = QWidget()
@@ -432,7 +432,13 @@ class DependencyTable(QTableWidget):
         name_lbl.setFont(mono)
         name_lbl.setObjectName("pkgName")
         name_lbl.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        layout.addWidget(name_lbl, 1)
+        layout.addWidget(name_lbl)
+        if dep.override_parent is not None:
+            parent_lbl = QLabel(f"in {dep.override_parent}")
+            parent_lbl.setObjectName("pkgParentHint")
+            parent_lbl.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+            layout.addWidget(parent_lbl)
+        layout.addStretch(1)
 
         npm_url = f"https://www.npmjs.com/package/{dep.name}"
         npm_btn = QPushButton("npm ↗")
@@ -483,6 +489,14 @@ class DependencyTable(QTableWidget):
 
     def _refresh_version_cells(self, row: int, dep: DependencyInfo) -> None:
         """Replace all three version cell widgets for *row*."""
+        if dep.fetch_status == "loading" and self.cellWidget(row, COL_PATCH) is not None:
+            # Re-fetch: keep existing widgets visible but disabled
+            for col in (COL_PATCH, COL_MINOR, COL_MAJOR):
+                w = self.cellWidget(row, col)
+                if w is not None:
+                    w.setEnabled(False)
+            return
+
         if self._merge_patch_minor:
             if dep.latest_minor:
                 merged_v, merged_age, merged_bump = dep.latest_minor, dep.minor_age, "minor"
@@ -527,7 +541,7 @@ class DependencyTable(QTableWidget):
 
     def _apply_filters(self) -> None:
         for dep in self._deps:
-            row = self._row_map.get((dep.name, dep.group))
+            row = self._row_map.get(dep.row_key)
             if row is not None:
                 self._apply_filter_to_row(row, dep)
         self._update_empty_label()
@@ -536,15 +550,18 @@ class DependencyTable(QTableWidget):
         hidden = False
         if self._filter_group and dep.group != self._filter_group:
             hidden = True
-        if self._hide_uptodate and not dep.has_any_update and dep.fetch_status == "done" and not dep.needs_install:
-            hidden = True
+        if self._hide_uptodate:
+            if dep.fetch_status == "loading":
+                hidden = hidden or self.isRowHidden(row)
+            elif not dep.has_any_update and dep.fetch_status == "done" and not dep.needs_install:
+                hidden = True
         self.setRowHidden(row, hidden)
 
     def _update_empty_label(self) -> None:
         any_visible = any(
-            not self.isRowHidden(self._row_map[(dep.name, dep.group)])
+            not self.isRowHidden(self._row_map[dep.row_key])
             for dep in self._deps
-            if (dep.name, dep.group) in self._row_map
+            if dep.row_key in self._row_map
         )
         show = bool(self._deps) and not any_visible
         self._empty_lbl.setVisible(show)

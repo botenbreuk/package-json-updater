@@ -132,6 +132,7 @@ class MainWindow(QMainWindow):
 
         self._thread: Optional[QThread] = None
         self._worker: Optional[FetchWorker] = None
+        self._zombie_threads: list = []   # threads cancelled mid-flight; kept alive until done
         self._fetch_completed = 0
         self._fetch_total = 0
         self._prev_page: int = 0
@@ -235,7 +236,7 @@ class MainWindow(QMainWindow):
 
         act_refresh = QAction("↺  Refresh", self)
         act_refresh.setShortcut(QKeySequence.StandardKey.Refresh)
-        act_refresh.triggered.connect(lambda: self._start_fetch(bypass_cache=True))
+        act_refresh.triggered.connect(lambda: self._start_fetch(reload_file=True))
         self._act_refresh = act_refresh
         tb.addAction(act_refresh)
 
@@ -749,10 +750,35 @@ class MainWindow(QMainWindow):
 
     # ── fetch ──────────────────────────────────────────────────────────────────
 
-    def _start_fetch(self, bypass_cache: bool = False) -> None:
+    def _reload_deps(self) -> None:
+        """Re-read package.json from disk and merge with current dep state."""
+        try:
+            original_data, new_deps = load_package(self._file_path)
+        except Exception:
+            return
+
+        existing = {dep.row_key: dep for dep in self._deps}
+        merged = []
+        for new_dep in new_deps:
+            key = new_dep.row_key
+            if key in existing:
+                old = existing[key]
+                old.raw_constraint = new_dep.raw_constraint
+                old.current_version = new_dep.current_version
+                merged.append(old)
+            else:
+                merged.append(new_dep)
+
+        self._original_data = original_data
+        self._deps = merged
+        self._table.populate(merged)
+
+    def _start_fetch(self, bypass_cache: bool = False, reload_file: bool = False) -> None:
+        self._cancel_fetch()
+        if (reload_file or bypass_cache) and self._file_path:
+            self._reload_deps()
         if not self._deps:
             return
-        self._cancel_fetch()
 
         # Mark all deps as loading
         for dep in self._deps:
@@ -805,6 +831,13 @@ class MainWindow(QMainWindow):
                 if self._thread.isRunning():
                     self._thread.quit()
                     self._thread.wait(2000)
+                    if self._thread.isRunning():
+                        # Timed out — keep a Python reference so the C++ thread
+                        # isn't destroyed before it stops (QThread abort crash).
+                        t = self._thread
+                        self._zombie_threads.append(t)
+                        t.finished.connect(lambda: self._zombie_threads.remove(t)
+                                           if t in self._zombie_threads else None)
             except RuntimeError:
                 pass  # C++ object already deleted; nothing to wait for
         self._worker = None
@@ -815,21 +848,26 @@ class MainWindow(QMainWindow):
 
         Called last on thread.finished (after _on_fetch_finished), so by the
         time closeEvent runs there is no stale C++ pointer to stumble on.
+        Only clears refs if this is still the active thread, so a queued signal
+        from a cancelled thread doesn't null out a newly started one.
         """
-        self._thread = None
-        self._worker = None
+        if self._thread is self.sender():
+            self._thread = None
+            self._worker = None
 
-    def _on_package_ready(self, name: str, updates: dict) -> None:
-        for dep in self._deps_by_name(name):
-            dep.fetch_status = "done"
-            dep.latest_patch = updates.get("latest_patch")
-            dep.latest_minor = updates.get("latest_minor")
-            dep.latest_major = updates.get("latest_major")
-            dep.patch_age = updates.get("patch_age")
-            dep.minor_age = updates.get("minor_age")
-            dep.major_age = updates.get("major_age")
-            dep.repo_url = updates.get("repo_url")
-            self._table.update_row(dep)
+    def _on_package_ready(self, row_key: tuple, updates: dict) -> None:
+        dep = next((d for d in self._deps if d.row_key == row_key), None)
+        if dep is None:
+            return
+        dep.fetch_status = "done"
+        dep.latest_patch = updates.get("latest_patch")
+        dep.latest_minor = updates.get("latest_minor")
+        dep.latest_major = updates.get("latest_major")
+        dep.patch_age = updates.get("patch_age")
+        dep.minor_age = updates.get("minor_age")
+        dep.major_age = updates.get("major_age")
+        dep.repo_url = updates.get("repo_url")
+        self._table.update_row(dep)
 
     def _on_progress(self, completed: int, total: int) -> None:
         self._fetch_completed = completed
@@ -1308,6 +1346,7 @@ class MainWindow(QMainWindow):
             QHeaderView::section:first { border-top-left-radius: 9px; }
             QHeaderView::section:last  { border-top-right-radius: 9px; }
             QLabel#pkgName { color: #1e293b; background: transparent; }
+            QLabel#pkgParentHint { color: #475569; background: transparent; font-size: 11px; }
             QPushButton#pkgLinkBtn {
                 background: #eff6ff; border: 1px solid #bfdbfe;
                 color: #3b82f6; font-size: 12px; font-weight: 600;
@@ -1499,7 +1538,7 @@ class MainWindow(QMainWindow):
             QStatusBar { background: #f8fafc; color: #475569; font-size: 14px; border-top: 1px solid #e2e8f0; }
             QStatusBar::item { border: none; }
             /* Count label */
-            QLabel#countLabel { color: #94a3b8; font-size: 14px; }
+            QLabel#countLabel { color: #475569; font-size: 14px; }
             /* Status bar version widgets */
             QLabel#footerVersion  { color: #475569; font-size: 13px; }
             QLabel#footerSep      { color: #94a3b8; font-size: 13px; }
@@ -1701,6 +1740,7 @@ class MainWindow(QMainWindow):
             QHeaderView::section:first { border-top-left-radius: 9px; }
             QHeaderView::section:last  { border-top-right-radius: 9px; }
             QLabel#pkgName { color: #e2e8f0; background: transparent; }
+            QLabel#pkgParentHint { color: #94a3b8; background: transparent; font-size: 11px; }
             QPushButton#pkgLinkBtn {
                 background: #1e3a5f; border: 1px solid #2563eb;
                 color: #93c5fd; font-size: 12px; font-weight: 600;
@@ -1894,7 +1934,7 @@ class MainWindow(QMainWindow):
             QStatusBar { background: #0f172a; color: #94a3b8; font-size: 14px; border-top: 1px solid #334155; }
             QStatusBar::item { border: none; }
             /* Count label */
-            QLabel#countLabel { color: #475569; font-size: 14px; }
+            QLabel#countLabel { color: #94a3b8; font-size: 14px; }
             /* Status bar version widgets */
             QLabel#footerVersion  { color: #94a3b8; font-size: 13px; }
             QLabel#footerSep      { color: #475569; font-size: 13px; }

@@ -10,6 +10,9 @@ class DependencyInfo:
     raw_constraint: str   # e.g. '^18.2.0'  (what package.json stores)
     current_version: str  # bare semver extracted, e.g. '18.2.0'
 
+    # Set for nested overrides: data["overrides"][override_parent][name]
+    override_parent: Optional[str] = None
+
     # Populated after npm fetch:
     latest_patch: Optional[str] = None
     latest_minor: Optional[str] = None
@@ -30,6 +33,10 @@ class DependencyInfo:
 
     # Version the user clicked (not yet written to disk):
     pending_version: Optional[str] = None
+
+    @property
+    def row_key(self) -> tuple:
+        return (self.name, self.group, self.override_parent)
 
     @property
     def group_label(self) -> str:

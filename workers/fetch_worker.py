@@ -35,7 +35,7 @@ class FetchWorker(QObject):
         Emitted when all packages are processed (or after cancel).
     """
 
-    package_ready = pyqtSignal(str, dict)
+    package_ready = pyqtSignal(object, dict)
     progress = pyqtSignal(int, int)
     error = pyqtSignal(str, str)
     finished = pyqtSignal()
@@ -70,7 +70,7 @@ class FetchWorker(QObject):
             if not self._bypass_cache and self._cache:
                 cached = self._cache.get(dep.name, dep.current_version, self._cache_ttl_hours)
                 if cached is not None:
-                    self.package_ready.emit(dep.name, cached)
+                    self.package_ready.emit(dep.row_key, cached)
                     self.progress.emit(i + 1, total)
                     continue
 
@@ -80,7 +80,7 @@ class FetchWorker(QObject):
                 updates = resolve_updates(dep.current_version, registry_data)
                 if self._cache:
                     self._cache.set(dep.name, dep.current_version, updates)
-                self.package_ready.emit(dep.name, updates)
+                self.package_ready.emit(dep.row_key, updates)
             except NpmFetchError as exc:
                 self.error.emit(dep.name, str(exc))
             except Exception as exc:  # noqa: BLE001
