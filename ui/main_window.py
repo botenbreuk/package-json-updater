@@ -27,6 +27,7 @@ from PyQt6.QtWidgets import (
     QSizePolicy, QStackedWidget, QToolBar, QVBoxLayout, QWidget,
 )
 
+from core.git_info import get_git_info, is_git_available
 from core.node_env import node_path_env
 from core.npm_cache import NpmCache
 from core.package_json import load as load_package, save as save_package
@@ -94,6 +95,29 @@ class _VersionFetcher(QObject):
         self.versions_ready.emit(node_v, npm_v)
 
 
+class _GitPullWorker(QObject):
+    """Runs `git pull` in the given directory on a background thread."""
+
+    finished = pyqtSignal(bool, str)   # (success, error_message)
+
+    def __init__(self, directory: str) -> None:
+        super().__init__()
+        self._directory = directory
+
+    def run(self) -> None:
+        try:
+            r = subprocess.run(
+                ["git", "-C", self._directory, "pull"],
+                capture_output=True, text=True, timeout=60,
+            )
+            if r.returncode == 0:
+                self.finished.emit(True, "")
+            else:
+                self.finished.emit(False, (r.stderr or r.stdout).strip())
+        except Exception as exc:
+            self.finished.emit(False, str(exc))
+
+
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
@@ -114,6 +138,7 @@ class MainWindow(QMainWindow):
         self._pending_install_names: set[str] = set()
         self._node_version = ""          # filled in by _VersionFetcher
         self._ver_thread: Optional[QThread] = None
+        self._pull_pairs: set = set()    # (thread, worker) pairs for active git pulls
 
         self.setWindowTitle("Package.json Updater")
         self.setMinimumSize(1000, 600)
@@ -253,6 +278,19 @@ class MainWindow(QMainWindow):
         layout.addWidget(self._hide_uptodate_cb)
 
         layout.addStretch()
+
+        self._git_branch_lbl = QLabel()
+        self._git_branch_lbl.setObjectName("gitBranchChip")
+        self._git_branch_lbl.setVisible(False)
+        layout.addWidget(self._git_branch_lbl)
+
+        self._git_pull_btn = QPushButton("↓ Pull")
+        self._git_pull_btn.setObjectName("gitPullBtn")
+        self._git_pull_btn.setVisible(False)
+        self._git_pull_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._git_pull_btn.setToolTip("Run git pull")
+        self._git_pull_btn.clicked.connect(self._on_git_pull_clicked)
+        layout.addWidget(self._git_pull_btn)
 
         self._count_label = QLabel("")
         self._count_label.setObjectName("countLabel")
@@ -478,6 +516,55 @@ class MainWindow(QMainWindow):
         self._footer_nvmrc.setVisible(True)
         self._footer_sep_nvmrc.setVisible(True)
 
+    def _update_git_status(self, project_dir: Optional[str]) -> None:
+        """Show branch chip and pull button in the filter bar; hide when no git repo."""
+        if not project_dir or not is_git_available():
+            self._git_branch_lbl.setVisible(False)
+            self._git_pull_btn.setVisible(False)
+            return
+
+        git_info = get_git_info(project_dir)
+        if git_info is None:
+            self._git_branch_lbl.setVisible(False)
+            self._git_pull_btn.setVisible(False)
+            return
+
+        if git_info.behind > 0:
+            self._git_branch_lbl.setText(f"⎇ {git_info.branch}  ↓{git_info.behind}")
+            new_name = "gitBehindChip"
+            self._git_branch_lbl.setToolTip(f"{git_info.behind} commit(s) behind remote")
+            self._git_pull_btn.setVisible(True)
+            self._git_pull_btn.setEnabled(True)
+            self._git_pull_btn.setText("↓ Pull")
+        else:
+            self._git_branch_lbl.setText(f"⎇ {git_info.branch}")
+            new_name = "gitBranchChip"
+            self._git_branch_lbl.setToolTip("")
+            self._git_pull_btn.setVisible(False)
+
+        if self._git_branch_lbl.objectName() != new_name:
+            self._git_branch_lbl.setObjectName(new_name)
+            self._git_branch_lbl.style().unpolish(self._git_branch_lbl)
+            self._git_branch_lbl.style().polish(self._git_branch_lbl)
+
+        self._git_branch_lbl.setVisible(True)
+
+        # Defer height sync — the chip expands to fill the filter bar, so its
+        # actual height is only known after the layout engine has run.
+        QTimer.singleShot(0, self._sync_git_pull_height)
+
+    def _sync_git_pull_height(self) -> None:
+        h = self._git_branch_lbl.height()
+        if h > 0 and self._git_pull_btn.isVisible():
+            self._git_pull_btn.setFixedHeight(h)
+
+    def _on_git_pull_clicked(self) -> None:
+        if not self._file_path:
+            return
+        self._git_pull_btn.setEnabled(False)
+        self._git_pull_btn.setText("Pulling…")
+        self._on_pull_requested(self._file_path)
+
     def _set_chrome_visible(self, visible: bool) -> None:
         """Show or hide the table-specific UI (filter bar, action bar, toolbar items)."""
         self._filter_bar.setVisible(visible)
@@ -526,6 +613,39 @@ class MainWindow(QMainWindow):
         self._settings.recent_files = []
         self._settings.save()
         self._start_screen.set_recent(self._settings.recent_files)
+
+    def _on_pull_requested(self, path: str) -> None:
+        directory = os.path.dirname(path)
+        worker = _GitPullWorker(directory)
+        thread = QThread(self)
+        worker.moveToThread(thread)
+        thread.started.connect(worker.run)
+        worker.finished.connect(thread.quit)
+        worker.finished.connect(worker.deleteLater)
+        thread.finished.connect(thread.deleteLater)
+        worker.finished.connect(
+            lambda ok, msg, p=path: self._on_pull_finished(ok, msg, p)
+        )
+        pair = (thread, worker)
+        self._pull_pairs.add(pair)
+        thread.finished.connect(lambda _=None, p=pair: self._pull_pairs.discard(p))
+        thread.start()
+
+    def _on_pull_finished(self, success: bool, message: str, path: str) -> None:
+        name = os.path.basename(os.path.dirname(path))
+        directory = os.path.dirname(path)
+        if success:
+            self.statusBar().showMessage(f"✓  git pull completed for {name}")
+            if self._file_path and os.path.dirname(self._file_path) == directory:
+                self._open_file(self._file_path)
+        else:
+            QMessageBox.warning(
+                self, "git pull failed",
+                f"Could not pull {name}:\n\n{message}",
+            )
+            if self._file_path and os.path.dirname(self._file_path) == directory:
+                self._git_pull_btn.setEnabled(True)
+                self._git_pull_btn.setText("↓ Pull")
 
     # ── file open ─────────────────────────────────────────────────────────────
 
@@ -602,6 +722,7 @@ class MainWindow(QMainWindow):
         self._stack.setCurrentIndex(1)
         self._update_count_label()
         self._update_nvmrc(os.path.dirname(path))
+        self._update_git_status(os.path.dirname(path))
         self._start_fetch()
 
     def _close_file(self) -> None:
@@ -622,6 +743,7 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("Package.json Updater")
         self.statusBar().showMessage("No file loaded. Open a package.json to begin.")
         self._update_nvmrc(None)
+        self._update_git_status(None)
 
     # ── fetch ──────────────────────────────────────────────────────────────────
 
@@ -1054,6 +1176,13 @@ class MainWindow(QMainWindow):
                 self._ver_thread.wait(2000)
             except RuntimeError:
                 pass
+        for thread, _ in list(self._pull_pairs):
+            try:
+                if thread.isRunning():
+                    thread.quit()
+                    thread.wait(2000)
+            except RuntimeError:
+                pass
         super().closeEvent(event)
 
     # ── stylesheet ────────────────────────────────────────────────────────────
@@ -1099,6 +1228,25 @@ class MainWindow(QMainWindow):
                 background: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px;
             }
             QLabel#showLabel { color: #64748b; font-weight: 600; font-size: 14px; }
+            /* Git status chips in filter bar */
+            QLabel#gitBranchChip {
+                font-size: 13px; font-weight: 600; color: #15803d;
+                background: #dcfce7; border: 1px solid #86efac;
+                border-radius: 5px; padding: 1px 8px;
+            }
+            QLabel#gitBehindChip {
+                font-size: 13px; font-weight: 600; color: #92400e;
+                background: #fef9c3; border: 1px solid #fcd34d;
+                border-radius: 5px; padding: 1px 8px;
+            }
+            QPushButton#gitPullBtn {
+                background: #eff6ff; color: #2563eb;
+                border: 1px solid #93c5fd; border-radius: 5px;
+                font-size: 13px; font-weight: 600; padding: 1px 10px;
+            }
+            QPushButton#gitPullBtn:hover   { background: #dbeafe; border-color: #60a5fa; }
+            QPushButton#gitPullBtn:pressed { background: #bfdbfe; border-color: #3b82f6; }
+            QPushButton#gitPullBtn:disabled { background: #f1f5f9; color: #94a3b8; border-color: #e2e8f0; }
             /* Start screen */
             QWidget#startScreen  { background: transparent; }
             QLabel#startIcon     { font-size: 48px; }
@@ -1473,6 +1621,25 @@ class MainWindow(QMainWindow):
                 background: #1e293b; border: 1px solid #334155; border-radius: 8px;
             }
             QLabel#showLabel { color: #64748b; font-weight: 600; font-size: 14px; }
+            /* Git status chips in filter bar */
+            QLabel#gitBranchChip {
+                font-size: 13px; font-weight: 600; color: #4ade80;
+                background: #14532d; border: 1px solid #166534;
+                border-radius: 5px; padding: 1px 8px;
+            }
+            QLabel#gitBehindChip {
+                font-size: 13px; font-weight: 600; color: #fcd34d;
+                background: #451a03; border: 1px solid #b45309;
+                border-radius: 5px; padding: 1px 8px;
+            }
+            QPushButton#gitPullBtn {
+                background: #1e3a5f; color: #93c5fd;
+                border: 1px solid #2563eb; border-radius: 5px;
+                font-size: 13px; font-weight: 600; padding: 1px 10px;
+            }
+            QPushButton#gitPullBtn:hover   { background: #1d4ed8; border-color: #3b82f6; color: #ffffff; }
+            QPushButton#gitPullBtn:pressed { background: #1e40af; border-color: #60a5fa; color: #ffffff; }
+            QPushButton#gitPullBtn:disabled { background: #1e293b; color: #334155; border-color: #1e293b; }
             /* Start screen */
             QWidget#startScreen  { background: transparent; }
             QLabel#startIcon     { font-size: 48px; }
