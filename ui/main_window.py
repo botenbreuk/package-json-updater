@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import os
 import subprocess
+import sys
 from typing import Optional
 
 # Absolute, normalised paths to SVG assets — avoids working-directory sensitivity.
@@ -85,7 +86,8 @@ class _VersionFetcher(QObject):
 
         def _get(cmd: list[str]) -> str:
             try:
-                r = subprocess.run(cmd, capture_output=True, text=True, timeout=6, env=env)
+                r = subprocess.run(cmd, capture_output=True, text=True, timeout=6, env=env,
+                                   shell=sys.platform == "win32")
                 return r.stdout.strip() if r.returncode == 0 else ""
             except Exception:
                 return ""
