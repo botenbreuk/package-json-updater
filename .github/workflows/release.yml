@@ -1,4 +1,5 @@
-name: Build & Release
+name: Release
+run-name: Releasing ${{ github.ref_name }}
 
 on:
   push:
