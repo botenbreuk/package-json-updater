@@ -257,8 +257,7 @@ class MainWindow(QMainWindow):
 
         refresh_lo.addWidget(self._btn_refresh_main)
         refresh_lo.addWidget(self._btn_refresh_arrow)
-        tb.addWidget(refresh_widget)
-        self._refresh_widget = refresh_widget
+        self._act_refresh = tb.addWidget(refresh_widget)
 
         self._refresh_menu = QMenu(self)
         self._act_refresh_normal = self._refresh_menu.addAction("↺  Refresh")
@@ -607,7 +606,7 @@ class MainWindow(QMainWindow):
         """Show or hide the table-specific UI (filter bar, action bar, toolbar items)."""
         self._filter_bar.setVisible(visible)
         self._action_bar.setVisible(visible)
-        self._refresh_widget.setVisible(visible)
+        self._act_refresh.setVisible(visible)
         self._act_close.setVisible(visible)
         self._file_label.setVisible(visible)
         self._act_open.setVisible(not visible)
