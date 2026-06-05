@@ -101,6 +101,23 @@ class NpmCache:
         self._dirty = True
         self.flush()
 
+    def stats(self) -> dict:
+        """Return basic cache statistics: count, oldest_at, newest_at (UTC datetimes)."""
+        oldest_at: Optional[datetime] = None
+        newest_at: Optional[datetime] = None
+        for entry in self._data.values():
+            try:
+                dt = datetime.fromisoformat(entry["fetched_at"])
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                if oldest_at is None or dt < oldest_at:
+                    oldest_at = dt
+                if newest_at is None or dt > newest_at:
+                    newest_at = dt
+            except Exception:
+                pass
+        return {"count": len(self._data), "oldest_at": oldest_at, "newest_at": newest_at}
+
     # ── internal ──────────────────────────────────────────────────────────────
 
     @staticmethod

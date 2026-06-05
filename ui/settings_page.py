@@ -12,6 +12,8 @@ cache_clear_requested()
 """
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
+
 from PyQt6.QtCore import QEasingCurve, QEvent, QPropertyAnimation, QRect, QTimer, Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QPainter, QPainterPath
 from PyQt6.QtWidgets import (
@@ -21,7 +23,41 @@ from PyQt6.QtWidgets import (
 )
 
 from _version import VERSION
+from core.npm_cache import NpmCache
 from models.settings import AppSettings
+
+
+def _fmt_ago(dt: datetime | None) -> str:
+    if dt is None:
+        return "never"
+    secs = (datetime.now(timezone.utc) - dt).total_seconds()
+    if secs < 60:
+        return "just now"
+    if secs < 3600:
+        return f"{int(secs // 60)}m ago"
+    if secs < 86400:
+        return f"{int(secs // 3600)}h ago"
+    days = int(secs // 86400)
+    if days == 1:
+        return "yesterday"
+    if days < 60:
+        return f"{days}d ago"
+    if days < 730:
+        return f"{days // 30}mo ago"
+    return f"{days // 365}y ago"
+
+
+def _fmt_duration(secs: float) -> str:
+    if secs < 3600:
+        return f"{int(secs // 60)}m"
+    if secs < 86400:
+        return f"{int(secs // 3600)}h"
+    days = int(secs // 86400)
+    if days < 60:
+        return f"{days}d"
+    if days < 730:
+        return f"{days // 30}mo"
+    return f"{days // 365}y"
 
 
 # ── mini theme preview ────────────────────────────────────────────────────────
@@ -325,9 +361,10 @@ class SettingsPage(QWidget):
     back_requested      = pyqtSignal()
     cache_clear_requested = pyqtSignal()
 
-    def __init__(self, settings: AppSettings, parent: QWidget | None = None) -> None:
+    def __init__(self, settings: AppSettings, cache: NpmCache, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self._settings = settings
+        self._cache = cache
         self._build_ui()
 
     # ── public API ────────────────────────────────────────────────────────────
@@ -343,6 +380,7 @@ class SettingsPage(QWidget):
         self._merge_cb.blockSignals(False)
         for scroll in self._panel_scrolls:
             scroll.verticalScrollBar().setValue(0)
+        self._update_cache_status()
 
     # ── construction ──────────────────────────────────────────────────────────
 
@@ -567,6 +605,10 @@ class SettingsPage(QWidget):
         hint.setWordWrap(True)
         layout.addWidget(hint)
 
+        self._cache_info_lbl = QLabel()
+        self._cache_info_lbl.setObjectName("cacheInfoLabel")
+        layout.addWidget(self._cache_info_lbl)
+
         row = QHBoxLayout()
         row.setSpacing(8)
         row.addWidget(QLabel("Cache TTL:"))
@@ -584,6 +626,7 @@ class SettingsPage(QWidget):
             "Set to 0 to disable caching (always fetch live).\n"
             "The ↺ Refresh button always fetches live regardless of this setting."
         )
+        self._ttl_spin.valueChanged.connect(lambda _: self._update_cache_status())
 
         ttl_minus = QPushButton("−")
         ttl_minus.setObjectName("spinStepBtn")
@@ -638,6 +681,7 @@ class SettingsPage(QWidget):
         clear_btn.clicked.connect(self._on_clear_cache_clicked)
         layout.addWidget(clear_btn, 0, Qt.AlignmentFlag.AlignLeft)
 
+        self._update_cache_status()
         layout.addStretch()
         return self._wrap_scroll(inner)
 
@@ -741,5 +785,29 @@ class SettingsPage(QWidget):
 
     def _do_clear_cache(self) -> None:
         self.cache_clear_requested.emit()
+        self._update_cache_status()
         central = self.window().centralWidget()
         _FlashMessage("✓  Cache cleared", central or self)
+
+    def _update_cache_status(self) -> None:
+        ttl = self._ttl_spin.value()
+        stats = self._cache.stats()
+        count = stats["count"]
+        newest_at = stats["newest_at"]
+        oldest_at = stats["oldest_at"]
+
+        if ttl == 0:
+            self._cache_info_lbl.setText("Caching is disabled")
+        elif count == 0:
+            self._cache_info_lbl.setText("No data cached yet")
+        else:
+            pkg = "package" if count == 1 else "packages"
+            parts = [f"{count} {pkg} cached", f"last updated {_fmt_ago(newest_at)}"]
+            if oldest_at is not None:
+                expires_at = oldest_at + timedelta(hours=ttl)
+                remaining = (expires_at - datetime.now(timezone.utc)).total_seconds()
+                if remaining <= 0:
+                    parts.append("refresh overdue")
+                else:
+                    parts.append(f"refreshes in {_fmt_duration(remaining)}")
+            self._cache_info_lbl.setText(" · ".join(parts))

@@ -200,7 +200,7 @@ class MainWindow(QMainWindow):
         self._stack.addWidget(_table_frame)
 
         # Page 2: settings
-        self._settings_page = SettingsPage(self._settings)
+        self._settings_page = SettingsPage(self._settings, self._cache)
         self._settings_page.settings_changed.connect(self._on_settings_changed)
         self._settings_page.back_requested.connect(self._on_settings_back)
         self._settings_page.cache_clear_requested.connect(self._cache.clear)
@@ -1573,6 +1573,7 @@ class MainWindow(QMainWindow):
             QLabel#settingsPanelTitle    { font-size: 20px; font-weight: 700; color: #0f172a; }
             QLabel#settingsPanelSubtitle { font-size: 15px; font-weight: 600; color: #334155; }
             QLabel#settingsPanelHint     { color: #64748b; font-size: 14px; }
+            QLabel#cacheInfoLabel        { color: #475569; font-size: 13px; }
             QFrame#settingsPanelDivider  { color: #e2e8f0; background: #e2e8f0; max-height: 1px; border: none; }
             QFrame#flashMessage {
                 background: #16a34a; border-radius: 20px;
@@ -1969,6 +1970,7 @@ class MainWindow(QMainWindow):
             QLabel#settingsPanelTitle    { font-size: 20px; font-weight: 700; color: #f1f5f9; }
             QLabel#settingsPanelSubtitle { font-size: 15px; font-weight: 600; color: #cbd5e1; }
             QLabel#settingsPanelHint     { color: #64748b; font-size: 14px; }
+            QLabel#cacheInfoLabel        { color: #94a3b8; font-size: 13px; }
             QFrame#settingsPanelDivider  { color: #334155; background: #334155; max-height: 1px; border: none; }
             QFrame#flashMessage {
                 background: #15803d; border-radius: 20px;
