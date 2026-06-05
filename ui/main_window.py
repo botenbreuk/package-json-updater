@@ -234,11 +234,46 @@ class MainWindow(QMainWindow):
         self._act_open_folder.triggered.connect(self._browse_folder)
         tb.addAction(self._act_open_folder)
 
-        act_refresh = QAction("↺  Refresh", self)
-        act_refresh.setShortcut(QKeySequence.StandardKey.Refresh)
-        act_refresh.triggered.connect(lambda: self._start_fetch(reload_file=True))
-        self._act_refresh = act_refresh
-        tb.addAction(act_refresh)
+        refresh_widget = QWidget()
+        refresh_widget.setAttribute(Qt.WidgetAttribute.WA_NoSystemBackground)
+        refresh_widget.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        refresh_lo = QHBoxLayout(refresh_widget)
+        refresh_lo.setContentsMargins(0, 0, 0, 0)
+        refresh_lo.setSpacing(0)
+
+        self._refresh_mode = "refresh"
+
+        self._btn_refresh_main = QPushButton("↺  Refresh")
+        self._btn_refresh_main.setObjectName("refreshMain")
+        self._btn_refresh_main.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn_refresh_main.clicked.connect(self._do_refresh)
+
+        self._btn_refresh_arrow = QPushButton("▾")
+        self._btn_refresh_arrow.setObjectName("refreshArrow")
+        self._btn_refresh_arrow.setFixedWidth(22)
+        self._btn_refresh_arrow.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._btn_refresh_arrow.setToolTip("More refresh options")
+        self._btn_refresh_arrow.clicked.connect(self._show_refresh_menu)
+
+        refresh_lo.addWidget(self._btn_refresh_main)
+        refresh_lo.addWidget(self._btn_refresh_arrow)
+        tb.addWidget(refresh_widget)
+        self._refresh_widget = refresh_widget
+
+        self._refresh_menu = QMenu(self)
+        self._act_refresh_normal = self._refresh_menu.addAction("↺  Refresh")
+        self._act_refresh_normal.setCheckable(True)
+        self._act_refresh_normal.setChecked(True)
+        self._act_refresh_normal.triggered.connect(lambda: self._set_refresh_mode("refresh"))
+        self._act_refresh_hard = self._refresh_menu.addAction("↺  Hard Refresh")
+        self._act_refresh_hard.setCheckable(True)
+        self._act_refresh_hard.setToolTip("Bypass the cache and re-fetch all package data from npm")
+        self._act_refresh_hard.triggered.connect(lambda: self._set_refresh_mode("hard_refresh"))
+
+        act_refresh_shortcut = QAction(self)
+        act_refresh_shortcut.setShortcut(QKeySequence.StandardKey.Refresh)
+        act_refresh_shortcut.triggered.connect(self._do_refresh)
+        self.addAction(act_refresh_shortcut)
 
         tb.addSeparator()
 
@@ -572,7 +607,7 @@ class MainWindow(QMainWindow):
         """Show or hide the table-specific UI (filter bar, action bar, toolbar items)."""
         self._filter_bar.setVisible(visible)
         self._action_bar.setVisible(visible)
-        self._act_refresh.setVisible(visible)
+        self._refresh_widget.setVisible(visible)
         self._act_close.setVisible(visible)
         self._file_label.setVisible(visible)
         self._act_open.setVisible(not visible)
@@ -718,6 +753,7 @@ class MainWindow(QMainWindow):
                 dep.needs_install = True
         self._table.populate(deps)
         self._table.set_hide_uptodate(self._hide_uptodate_cb.isChecked())
+        self._set_refresh_mode("refresh")
         self._btn_update_selected.setEnabled(False)       # all checkboxes reset by populate
         self._btn_update_selected_arrow.setEnabled(False)
         self._btn_npm_install.setEnabled(True)
@@ -978,6 +1014,20 @@ class MainWindow(QMainWindow):
         label = "Patch / Minor" if mode == "patch_minor" else "All incl. Major"
         self._btn_update_all.setText(f"Update All  ·  {label}")
         self._btn_update_selected.setText(f"Update Selected  ·  {label}")
+
+    def _show_refresh_menu(self) -> None:
+        btn = self._btn_refresh_arrow
+        self._refresh_menu.exec(btn.mapToGlobal(btn.rect().bottomLeft()))
+
+    def _set_refresh_mode(self, mode: str) -> None:
+        self._refresh_mode = mode
+        self._act_refresh_normal.setChecked(mode == "refresh")
+        self._act_refresh_hard.setChecked(mode == "hard_refresh")
+        label = "↺  Refresh" if mode == "refresh" else "↺  Hard Refresh"
+        self._btn_refresh_main.setText(label)
+
+    def _do_refresh(self) -> None:
+        self._start_fetch(reload_file=True, bypass_cache=self._refresh_mode == "hard_refresh")
 
     def _show_update_mode_menu(self) -> None:
         btn = self._btn_update_all_arrow
@@ -1262,6 +1312,23 @@ class MainWindow(QMainWindow):
             QToolBar QToolButton[text="✕  Close"]         { color: #ef4444; }
             QToolBar QToolButton[text="✕  Close"]:hover   { background: #fee2e2; color: #dc2626; }
             QToolBar QToolButton[text="✕  Close"]:pressed { background: #fecaca; color: #b91c1c; }
+            QPushButton#refreshMain {
+                color: #334155; background: transparent; border: none;
+                border-top-left-radius: 6px; border-bottom-left-radius: 6px;
+                border-top-right-radius: 0; border-bottom-right-radius: 0;
+                padding: 6px 10px; font-size: 13px;
+            }
+            QPushButton#refreshMain:hover   { background: #f1f5f9; }
+            QPushButton#refreshMain:pressed { background: #e2e8f0; }
+            QPushButton#refreshArrow {
+                color: #334155; background: transparent; border: none;
+                border-left: 1px solid #e2e8f0;
+                border-top-left-radius: 0; border-bottom-left-radius: 0;
+                border-top-right-radius: 6px; border-bottom-right-radius: 6px;
+                padding: 6px 4px; font-size: 11px;
+            }
+            QPushButton#refreshArrow:hover   { background: #f1f5f9; }
+            QPushButton#refreshArrow:pressed { background: #e2e8f0; }
             QLabel#fileLabel { color: #94a3b8; font-size: 13px; padding: 0 8px; }
             /* Filter bar */
             QFrame#filterBar {
@@ -1657,6 +1724,23 @@ class MainWindow(QMainWindow):
             QToolBar QToolButton[text="✕  Close"]         { color: #f87171; }
             QToolBar QToolButton[text="✕  Close"]:hover   { background: #450a0a; color: #fca5a5; }
             QToolBar QToolButton[text="✕  Close"]:pressed { background: #7f1d1d; color: #fecaca; }
+            QPushButton#refreshMain {
+                color: #cbd5e1; background: transparent; border: none;
+                border-top-left-radius: 6px; border-bottom-left-radius: 6px;
+                border-top-right-radius: 0; border-bottom-right-radius: 0;
+                padding: 6px 10px; font-size: 13px;
+            }
+            QPushButton#refreshMain:hover   { background: #334155; }
+            QPushButton#refreshMain:pressed { background: #475569; }
+            QPushButton#refreshArrow {
+                color: #cbd5e1; background: transparent; border: none;
+                border-left: 1px solid #334155;
+                border-top-left-radius: 0; border-bottom-left-radius: 0;
+                border-top-right-radius: 6px; border-bottom-right-radius: 6px;
+                padding: 6px 4px; font-size: 11px;
+            }
+            QPushButton#refreshArrow:hover   { background: #334155; }
+            QPushButton#refreshArrow:pressed { background: #475569; }
             QLabel#fileLabel { color: #475569; font-size: 13px; padding: 0 8px; }
             /* Filter bar */
             QFrame#filterBar {
