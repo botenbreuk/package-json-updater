@@ -66,7 +66,7 @@ echo "✓  Updated _version.py and pyproject.toml"
 
 # ── commit and tag ─────────────────────────────────────────────────────────────
 git -C "$SCRIPT_DIR" add _version.py pyproject.toml
-git -C "$SCRIPT_DIR" commit -m "Version bump to $NEW_VERSION"
+git -C "$SCRIPT_DIR" commit -m "Released: $NEW_VERSION"
 git -C "$SCRIPT_DIR" tag "v$NEW_VERSION"
 
 echo "✓  Committed and tagged v$NEW_VERSION"
