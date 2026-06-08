@@ -38,7 +38,7 @@ def main() -> None:
     app.setOrganizationName("42nl")
     app.setApplicationVersion(VERSION)
 
-    icon = QIcon(_asset("app_icon.svg"))
+    icon = QIcon(_asset("app_icon_clean.png"))
     app.setWindowIcon(icon)   # dock / taskbar
 
     window = MainWindow()
