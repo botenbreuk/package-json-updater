@@ -70,6 +70,9 @@ def main():
     create_ico(OUTPUT_DIR / "icon.ico")
     create_icns(OUTPUT_DIR / "icon.icns")
     create_png(OUTPUT_DIR / "icon.png")
+
+    # Keep the runtime asset in sync so dev runs also use the proper .icns
+    create_icns(PROJECT_ROOT / "assets" / "app_icon.icns")
     print("Done!")
 
 

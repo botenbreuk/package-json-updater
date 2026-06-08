@@ -4,6 +4,7 @@ Package.json Updater — desktop application entry point.
 Run with:
     python main.py
 """
+import platform
 import signal
 import sys
 import os
@@ -38,7 +39,8 @@ def main() -> None:
     app.setOrganizationName("42nl")
     app.setApplicationVersion(VERSION)
 
-    icon = QIcon(_asset("app_icon_clean.png"))
+    icon_file = "app_icon.icns" if platform.system() == "Darwin" else "app_icon_clean.png"
+    icon = QIcon(_asset(icon_file))
     app.setWindowIcon(icon)   # dock / taskbar
 
     window = MainWindow()
