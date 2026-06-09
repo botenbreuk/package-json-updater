@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "package-json-updater"
-version = "1.4.1"
+version = "1.4.2.dev0"
 description = "Desktop application for managing npm package dependencies"
 requires-python = ">=3.11"
 dependencies = [
