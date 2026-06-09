@@ -120,6 +120,26 @@ class _GitPullWorker(QObject):
             self.finished.emit(False, str(exc))
 
 
+class _GitFetchWorker(QObject):
+    """Runs `git fetch` in the given directory on a background thread."""
+
+    finished = pyqtSignal()
+
+    def __init__(self, directory: str) -> None:
+        super().__init__()
+        self._directory = directory
+
+    def run(self) -> None:
+        try:
+            subprocess.run(
+                ["git", "-C", self._directory, "fetch"],
+                capture_output=True, timeout=15,
+            )
+        except Exception:
+            pass
+        self.finished.emit()
+
+
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
@@ -142,6 +162,7 @@ class MainWindow(QMainWindow):
         self._node_version = ""          # filled in by _VersionFetcher
         self._ver_thread: Optional[QThread] = None
         self._pull_pairs: set = set()    # (thread, worker) pairs for active git pulls
+        self._git_fetch_pairs: set = set()  # (thread, worker) pairs for active git fetches
 
         self.setWindowTitle("Package.json Updater")
         self.setMinimumSize(1000, 600)
@@ -553,7 +574,7 @@ class MainWindow(QMainWindow):
         self._footer_nvmrc.setVisible(True)
         self._footer_sep_nvmrc.setVisible(True)
 
-    def _update_git_status(self, project_dir: Optional[str]) -> None:
+    def _update_git_status(self, project_dir: Optional[str], fetching: bool = False) -> None:
         """Show branch chip and pull button in the filter bar; hide when no git repo."""
         if not project_dir or not is_git_available():
             self._git_branch_lbl.setVisible(False)
@@ -566,7 +587,12 @@ class MainWindow(QMainWindow):
             self._git_pull_btn.setVisible(False)
             return
 
-        if git_info.behind > 0:
+        if fetching:
+            self._git_branch_lbl.setText(f"⎇ {git_info.branch}")
+            new_name = "gitFetchingChip"
+            self._git_branch_lbl.setToolTip("")
+            self._git_pull_btn.setVisible(False)
+        elif git_info.behind > 0:
             self._git_branch_lbl.setText(f"⎇ {git_info.branch}  ↓{git_info.behind}")
             new_name = "gitBehindChip"
             self._git_branch_lbl.setToolTip(f"{git_info.behind} commit(s) behind remote")
@@ -594,6 +620,27 @@ class MainWindow(QMainWindow):
         h = self._git_branch_lbl.height()
         if h > 0 and self._git_pull_btn.isVisible():
             self._git_pull_btn.setFixedHeight(h)
+
+    def _start_git_fetch(self, directory: str) -> None:
+        """Fetch from remote in the background, then refresh the git status chip."""
+        worker = _GitFetchWorker(directory)
+        thread = QThread(self)
+        worker.moveToThread(thread)
+        thread.started.connect(worker.run)
+        worker.finished.connect(thread.quit)
+        worker.finished.connect(worker.deleteLater)
+        thread.finished.connect(thread.deleteLater)
+        worker.finished.connect(
+            lambda d=directory: self._on_git_fetch_finished(d)
+        )
+        pair = (thread, worker)
+        self._git_fetch_pairs.add(pair)
+        thread.finished.connect(lambda _=None, p=pair: self._git_fetch_pairs.discard(p))
+        thread.start()
+
+    def _on_git_fetch_finished(self, directory: str) -> None:
+        if self._file_path and os.path.dirname(self._file_path) == directory:
+            self._update_git_status(directory)
 
     def _on_git_pull_clicked(self) -> None:
         if not self._file_path:
@@ -760,7 +807,8 @@ class MainWindow(QMainWindow):
         self._stack.setCurrentIndex(1)
         self._update_count_label()
         self._update_nvmrc(os.path.dirname(path))
-        self._update_git_status(os.path.dirname(path))
+        self._update_git_status(os.path.dirname(path), fetching=True)
+        self._start_git_fetch(os.path.dirname(path))
         self._start_fetch()
 
     def _close_file(self) -> None:
@@ -1272,6 +1320,13 @@ class MainWindow(QMainWindow):
                     thread.wait(2000)
             except RuntimeError:
                 pass
+        for thread, _ in list(self._git_fetch_pairs):
+            try:
+                if thread.isRunning():
+                    thread.quit()
+                    thread.wait(2000)
+            except RuntimeError:
+                pass
         super().closeEvent(event)
 
     # ── stylesheet ────────────────────────────────────────────────────────────
@@ -1343,6 +1398,11 @@ class MainWindow(QMainWindow):
             QLabel#gitBehindChip {
                 font-size: 13px; font-weight: 600; color: #92400e;
                 background: #fef9c3; border: 1px solid #fcd34d;
+                border-radius: 5px; padding: 1px 8px;
+            }
+            QLabel#gitFetchingChip {
+                font-size: 13px; font-weight: 600; color: #475569;
+                background: #f1f5f9; border: 1px solid #cbd5e1;
                 border-radius: 5px; padding: 1px 8px;
             }
             QPushButton#gitPullBtn {
@@ -1755,6 +1815,11 @@ class MainWindow(QMainWindow):
             QLabel#gitBehindChip {
                 font-size: 13px; font-weight: 600; color: #fcd34d;
                 background: #451a03; border: 1px solid #b45309;
+                border-radius: 5px; padding: 1px 8px;
+            }
+            QLabel#gitFetchingChip {
+                font-size: 13px; font-weight: 600; color: #64748b;
+                background: #1e293b; border: 1px solid #334155;
                 border-radius: 5px; padding: 1px 8px;
             }
             QPushButton#gitPullBtn {
