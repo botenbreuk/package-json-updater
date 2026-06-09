@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 import requests
+from packaging.version import Version, InvalidVersion
 
 from .semver_utils import is_stable, categorize_bump, max_version
 
@@ -104,19 +105,31 @@ def resolve_updates(
     age_map = registry_result.get("age_map", {})
     time_map = registry_result.get("time_map", {})
 
-    # Anchor: only accept candidates published after the current version.
-    # This filters out higher-semver versions that were published before the
-    # installed one — a real-world pattern in packages like @types/* that
-    # changed versioning conventions over time.
+    # Anchor check: filter out higher-semver candidates that were published
+    # before the current version — a real-world pattern in packages like
+    # @types/* that changed versioning conventions over time.
+    #
+    # For minor/patch bumps we anchor against current_published (the publish
+    # date of the installed version).
+    #
+    # For major bumps we anchor against the earliest publish date in the
+    # current major series instead. This is necessary because a new major
+    # (e.g. vite 6) may have been released before later maintenance patches
+    # of the old major (e.g. vite 5.4.x), making current_published a bad
+    # anchor. Using the start of the current major series correctly keeps
+    # vite 6 while still filtering stale higher-majors like
+    # @types/react-text-mask 16.0.0 which predates the entire 5.x line.
     current_published = _parse_ts(time_map.get(current_version))
+    first_in_current_major = _earliest_in_major(time_map, current_version)
 
     for v in registry_result.get("versions", []):
         bump = categorize_bump(current_version, v)
         if not bump:
             continue
-        if current_published is not None:
+        anchor = first_in_current_major if bump == "major" else current_published
+        if anchor is not None:
             v_published = _parse_ts(time_map.get(v))
-            if v_published is not None and v_published <= current_published:
+            if v_published is not None and v_published <= anchor:
                 continue
         best[bump] = max_version(best[bump], v)
 
@@ -159,6 +172,26 @@ def _parse_ts(ts: Optional[str]) -> Optional[datetime]:
         return datetime.fromisoformat(ts.replace("Z", "+00:00"))
     except ValueError:
         return None
+
+
+def _earliest_in_major(time_map: dict, current_version: str) -> Optional[datetime]:
+    """Return the earliest publish date of any version in current_version's major series."""
+    try:
+        cur_major = Version(current_version).major
+    except InvalidVersion:
+        return None
+    dates = []
+    for key, ts in time_map.items():
+        if key in ("created", "modified"):
+            continue
+        try:
+            if Version(key).major == cur_major:
+                dt = _parse_ts(ts)
+                if dt is not None:
+                    dates.append(dt)
+        except InvalidVersion:
+            continue
+    return min(dates) if dates else None
 
 
 def _age_days(time_map: dict, version: str) -> Optional[int]:
