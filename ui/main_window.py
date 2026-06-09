@@ -224,7 +224,6 @@ class MainWindow(QMainWindow):
         # Page 2: settings
         self._settings_page = SettingsPage(self._settings, self._cache)
         self._settings_page.settings_changed.connect(self._on_settings_changed)
-        self._settings_page.back_requested.connect(self._on_settings_back)
         self._settings_page.cache_clear_requested.connect(self._cache.clear)
         self._stack.addWidget(self._settings_page)
 
@@ -246,6 +245,16 @@ class MainWindow(QMainWindow):
         tb.setMovable(False)
         tb.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         self.addToolBar(tb)
+
+        self._act_back = QAction("← Back", self)
+        self._act_back.triggered.connect(self._on_settings_back)
+        tb.addAction(self._act_back)
+        self._act_back.setVisible(False)
+
+        settings_title = QLabel("Settings")
+        settings_title.setObjectName("toolbarSettingsTitle")
+        self._act_settings_title = tb.addWidget(settings_title)
+        self._act_settings_title.setVisible(False)
 
         self._act_open = QAction("📂  Open package.json", self)
         self._act_open.setShortcut(QKeySequence.StandardKey.Open)
@@ -296,15 +305,15 @@ class MainWindow(QMainWindow):
         act_refresh_shortcut.triggered.connect(self._do_refresh)
         self.addAction(act_refresh_shortcut)
 
-        tb.addSeparator()
+        self._act_separator = tb.addSeparator()
 
-        act_settings = QAction("⚙  Settings", self)
-        act_settings.triggered.connect(self._open_settings)
-        tb.addAction(act_settings)
+        self._act_settings = QAction("⚙  Settings", self)
+        self._act_settings.triggered.connect(self._open_settings)
+        tb.addAction(self._act_settings)
 
         spacer = QWidget()
         spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
-        tb.addWidget(spacer)
+        self._act_spacer = tb.addWidget(spacer)
 
         self._git_branch_lbl = QLabel()
         self._git_branch_lbl.setObjectName("gitBranchChip")
@@ -321,7 +330,7 @@ class MainWindow(QMainWindow):
 
         gap = QWidget()
         gap.setFixedWidth(16)
-        tb.addWidget(gap)
+        self._act_gap = tb.addWidget(gap)
 
         self._act_close = QAction("✕  Close", self)
         self._act_close.triggered.connect(self._close_file)
@@ -1231,6 +1240,23 @@ class MainWindow(QMainWindow):
 
     # ── settings ──────────────────────────────────────────────────────────────
 
+    def _set_toolbar_settings_mode(self, in_settings: bool) -> None:
+        self._act_back.setVisible(in_settings)
+        self._act_settings_title.setVisible(in_settings)
+        for act in (self._act_separator, self._act_settings, self._act_spacer, self._act_gap):
+            act.setVisible(not in_settings)
+        if in_settings:
+            self._git_branch_vis = self._act_git_branch.isVisible()
+            self._git_pull_vis = self._act_git_pull.isVisible()
+            for act in (
+                self._act_open, self._act_open_folder, self._act_refresh,
+                self._act_git_branch, self._act_git_pull, self._act_close,
+            ):
+                act.setVisible(False)
+        else:
+            self._act_git_branch.setVisible(self._git_branch_vis)
+            self._act_git_pull.setVisible(self._git_pull_vis)
+
     def _open_settings(self) -> None:
         if self._stack.currentIndex() != 2:
             self._prev_page = self._stack.currentIndex()
@@ -1238,14 +1264,13 @@ class MainWindow(QMainWindow):
         self._settings_page.refresh(self._settings)
         self._filter_bar.setVisible(False)
         self._action_bar.setVisible(False)
+        self._set_toolbar_settings_mode(True)
         self._stack.setCurrentIndex(2)
 
     def _on_settings_back(self) -> None:
+        self._set_toolbar_settings_mode(False)
+        self._set_chrome_visible(bool(self._file_path))
         self._stack.setCurrentIndex(self._prev_page)
-        # Re-show chrome only when returning to the table page
-        if self._prev_page == 1:
-            self._filter_bar.setVisible(True)
-            self._action_bar.setVisible(True)
 
     def _on_settings_changed(self, settings: AppSettings) -> None:
         self._settings = settings
@@ -1700,16 +1725,7 @@ class MainWindow(QMainWindow):
                 color: #d97706; font-size: 13px; font-weight: 600;
             }
             /* Settings page */
-            QWidget#settingsHeader {
-                background: #ffffff; border-bottom: 1px solid #e2e8f0;
-            }
-            QLabel#settingsTitle { font-size: 18px; font-weight: 700; color: #0f172a; }
-            QPushButton#settingsBackBtn {
-                background: transparent; color: #3b82f6; border: none;
-                font-weight: 600; padding: 4px 8px; border-radius: 5px;
-            }
-            QPushButton#settingsBackBtn:hover   { background: #eff6ff; color: #2563eb; }
-            QPushButton#settingsBackBtn:pressed { background: #dbeafe; color: #1d4ed8; }
+            QLabel#toolbarSettingsTitle { font-size: 15px; font-weight: 700; color: #0f172a; padding-left: 4px; }
             QWidget#settingsSidebar { background: #f8fafc; }
             QFrame#settingsDivider  { color: #e2e8f0; background: #e2e8f0; }
             QPushButton#settingsNavItem {
@@ -2131,16 +2147,7 @@ class MainWindow(QMainWindow):
                 color: #f59e0b; font-size: 13px; font-weight: 600;
             }
             /* Settings page */
-            QWidget#settingsHeader {
-                background: #1e293b; border-bottom: 1px solid #334155;
-            }
-            QLabel#settingsTitle { font-size: 18px; font-weight: 700; color: #f1f5f9; }
-            QPushButton#settingsBackBtn {
-                background: transparent; color: #60a5fa; border: none;
-                font-weight: 600; padding: 4px 8px; border-radius: 5px;
-            }
-            QPushButton#settingsBackBtn:hover   { background: #1e3a5f; color: #93c5fd; }
-            QPushButton#settingsBackBtn:pressed { background: #1e3a8a; color: #bfdbfe; }
+            QLabel#toolbarSettingsTitle { font-size: 15px; font-weight: 700; color: #f1f5f9; padding-left: 4px; }
             QWidget#settingsSidebar { background: #1e293b; }
             QFrame#settingsDivider  { color: #334155; background: #334155; }
             QPushButton#settingsNavItem {

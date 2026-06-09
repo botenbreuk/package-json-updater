@@ -5,8 +5,6 @@ Signals
 -------
 settings_changed(AppSettings)
     Emitted when the user clicks Save with valid settings.
-back_requested()
-    Emitted when the user clicks ← Back (with or without saving).
 cache_clear_requested()
     Emitted when the user clicks "Clear Cache Now".
 """
@@ -357,8 +355,7 @@ class _ThemeCard(QFrame):
 # ── settings page ─────────────────────────────────────────────────────────────
 
 class SettingsPage(QWidget):
-    settings_changed    = pyqtSignal(object)   # AppSettings
-    back_requested      = pyqtSignal()
+    settings_changed      = pyqtSignal(object)   # AppSettings
     cache_clear_requested = pyqtSignal()
 
     def __init__(self, settings: AppSettings, cache: NpmCache, parent: QWidget | None = None) -> None:
@@ -392,25 +389,6 @@ class SettingsPage(QWidget):
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
-
-        # ── header ────────────────────────────────────────────────────────────
-        header = QWidget()
-        header.setObjectName("settingsHeader")
-        h_row = QHBoxLayout(header)
-        h_row.setContentsMargins(16, 10, 16, 10)
-        h_row.setSpacing(12)
-
-        back_btn = QPushButton("← Back")
-        back_btn.setObjectName("settingsBackBtn")
-        back_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        back_btn.clicked.connect(self.back_requested)
-        h_row.addWidget(back_btn)
-
-        title = QLabel("Settings")
-        title.setObjectName("settingsTitle")
-        h_row.addWidget(title)
-        h_row.addStretch()
-        root.addWidget(header)
 
         # ── body: sidebar + content ───────────────────────────────────────────
         body = QWidget()
