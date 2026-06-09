@@ -23,6 +23,9 @@ class DependencyInfo:
     minor_age: Optional[int] = None
     major_age: Optional[int] = None
 
+    # Days since current installed version was published (None = unknown):
+    current_age: Optional[int] = None
+
     # Repository link (populated after fetch):
     repo_url: Optional[str] = None
 

@@ -174,6 +174,7 @@ class MainWindow(QMainWindow):
         self._apply_stylesheet()
         self._table.set_dark(self._settings.dark_mode)
         self._table.set_merge_patch_minor(self._settings.merge_patch_minor)
+        self._table.set_old_age_threshold(self._settings.old_version_threshold_days)
         self._start_screen.set_recent(self._settings.recent_files)
         self._start_version_fetch()
 
@@ -334,6 +335,14 @@ class MainWindow(QMainWindow):
         self._hide_uptodate_cb.setChecked(self._settings.hide_uptodate)
         self._hide_uptodate_cb.stateChanged.connect(self._on_filter_changed)
         layout.addWidget(self._hide_uptodate_cb)
+
+        self._old_only_btn = QPushButton("⚠  Old only")
+        self._old_only_btn.setObjectName("oldOnlyBtn")
+        self._old_only_btn.setCheckable(True)
+        self._old_only_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._old_only_btn.setToolTip("Show only packages whose installed version is older than the configured threshold")
+        self._old_only_btn.toggled.connect(self._on_filter_changed)
+        layout.addWidget(self._old_only_btn)
 
         layout.addStretch()
 
@@ -949,6 +958,7 @@ class MainWindow(QMainWindow):
         dep.patch_age = updates.get("patch_age")
         dep.minor_age = updates.get("minor_age")
         dep.major_age = updates.get("major_age")
+        dep.current_age = updates.get("current_age")
         dep.repo_url = updates.get("repo_url")
         self._table.update_row(dep)
 
@@ -1201,8 +1211,10 @@ class MainWindow(QMainWindow):
     def _on_filter_changed(self) -> None:
         group = self._group_combo.currentData()
         hide = self._hide_uptodate_cb.isChecked()
+        old_only = self._old_only_btn.isChecked()
         self._table.set_filter_group(group)
         self._table.set_hide_uptodate(hide)
+        self._table.set_filter_old_only(old_only)
         self._settings.hide_uptodate = hide
         self._settings.save()
         self._update_count_label()
@@ -1239,6 +1251,7 @@ class MainWindow(QMainWindow):
         self._apply_stylesheet()
         self._table.set_dark(settings.dark_mode)
         self._table.set_merge_patch_minor(settings.merge_patch_minor)
+        self._table.set_old_age_threshold(settings.old_version_threshold_days)
         if self._file_path and settings.min_age_days != self._min_age_at_settings_open:
             self._min_age_at_settings_open = settings.min_age_days
             self._start_fetch(bypass_cache=True)
@@ -1405,6 +1418,9 @@ class MainWindow(QMainWindow):
                 background: #f1f5f9; border: 1px solid #cbd5e1;
                 border-radius: 5px; padding: 1px 8px;
             }
+            QLabel#currentVersionWarn {
+                font-size: 14px; color: #d97706;
+            }
             QPushButton#gitPullBtn {
                 background: #eff6ff; color: #2563eb;
                 border: 1px solid #93c5fd; border-radius: 5px;
@@ -1521,6 +1537,15 @@ class MainWindow(QMainWindow):
             }
             QCheckBox::indicator:hover   { border-color: #6b7280; }
             QCheckBox::indicator:checked { background: #3b82f6; border-color: #3b82f6; image: url(§CHECK§); }
+            QPushButton#oldOnlyBtn {
+                background: #f8fafc; color: #64748b;
+                border: 1px solid #e2e8f0; border-radius: 6px;
+                font-size: 13px; font-weight: 500; padding: 2px 10px;
+            }
+            QPushButton#oldOnlyBtn:hover   { border-color: #fcd34d; color: #92400e; }
+            QPushButton#oldOnlyBtn:checked {
+                background: #fef9c3; color: #92400e; border-color: #fcd34d; font-weight: 600;
+            }
             /* Table row checkbox — 20×20 QPushButton centred in a transparent container */
             QPushButton#tableCheckbox {
                 background: #ffffff; border: 2px solid #9ca3af;
@@ -1822,6 +1847,9 @@ class MainWindow(QMainWindow):
                 background: #1e293b; border: 1px solid #334155;
                 border-radius: 5px; padding: 1px 8px;
             }
+            QLabel#currentVersionWarn {
+                font-size: 14px; color: #fbbf24;
+            }
             QPushButton#gitPullBtn {
                 background: #1e3a5f; color: #93c5fd;
                 border: 1px solid #2563eb; border-radius: 5px;
@@ -1938,6 +1966,15 @@ class MainWindow(QMainWindow):
             }
             QCheckBox::indicator:hover   { border-color: #64748b; }
             QCheckBox::indicator:checked { background: #3b82f6; border-color: #3b82f6; image: url(§CHECK§); }
+            QPushButton#oldOnlyBtn {
+                background: #1e293b; color: #64748b;
+                border: 1px solid #334155; border-radius: 6px;
+                font-size: 13px; font-weight: 500; padding: 2px 10px;
+            }
+            QPushButton#oldOnlyBtn:hover   { border-color: #b45309; color: #fbbf24; }
+            QPushButton#oldOnlyBtn:checked {
+                background: #451a03; color: #fcd34d; border-color: #b45309; font-weight: 600;
+            }
             /* Table row checkbox — 20×20 QPushButton centred in a transparent container */
             QPushButton#tableCheckbox {
                 background: transparent; border: 2px solid #94a3b8;

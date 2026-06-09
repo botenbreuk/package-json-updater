@@ -59,8 +59,19 @@ class AppSettings:
     # Each entry: {"path": str, "last_checked": str | None}
     pending_installs: dict = field(default_factory=dict)
     # {"path/to/package.json": ["dep-a", "dep-b"]}
+    old_version_threshold: int = 12   # number of months or years (0 = disabled)
+    old_version_unit: str = "months"  # "months" | "years"
 
     # ── resolved theme ────────────────────────────────────────────────────────
+
+    @property
+    def old_version_threshold_days(self) -> int:
+        """Threshold in days (0 when disabled)."""
+        if self.old_version_threshold <= 0:
+            return 0
+        if self.old_version_unit == "years":
+            return self.old_version_threshold * 365
+        return self.old_version_threshold * 30
 
     @property
     def dark_mode(self) -> bool:
@@ -96,6 +107,9 @@ class AppSettings:
         self.last_opened_path = str(s.value("last_opened_path", self.last_opened_path))
         self.hide_uptodate      = s.value("hide_uptodate",      self.hide_uptodate,      type=bool)
         self.merge_patch_minor  = s.value("merge_patch_minor",  self.merge_patch_minor,  type=bool)
+        self.old_version_threshold = int(s.value("old_version_threshold", self.old_version_threshold))
+        raw_unit = str(s.value("old_version_unit", self.old_version_unit))
+        self.old_version_unit = raw_unit if raw_unit in ("months", "years") else "months"
         try:
             self.recent_files = json.loads(s.value("recent_files", "[]"))
         except Exception:
@@ -120,8 +134,10 @@ class AppSettings:
         s.setValue("cache_ttl_hours",  self.cache_ttl_hours)
         s.setValue("last_opened_path", self.last_opened_path)
         s.setValue("theme",            self.theme)
-        s.setValue("hide_uptodate",     self.hide_uptodate)
-        s.setValue("merge_patch_minor", self.merge_patch_minor)
+        s.setValue("hide_uptodate",          self.hide_uptodate)
+        s.setValue("merge_patch_minor",      self.merge_patch_minor)
+        s.setValue("old_version_threshold",  self.old_version_threshold)
+        s.setValue("old_version_unit",       self.old_version_unit)
         s.setValue("recent_files",     json.dumps(self.recent_files))
         s.setValue("pending_installs", json.dumps(self.pending_installs))
         s.remove("dark_mode")   # clean up migrated key

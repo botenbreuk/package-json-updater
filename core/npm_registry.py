@@ -76,6 +76,7 @@ def fetch_package_data(name: str, min_age_days: int) -> dict:
     return {
         "versions": old_enough,
         "age_map": age_map,
+        "time_map": time_map,
         "npm_latest": npm_latest,
         "repo_url": _extract_repo_url(data.get("repository")),
     }
@@ -114,6 +115,7 @@ def resolve_updates(
         "patch_age": age_map.get(best["patch"]) if best["patch"] else None,
         "minor_age": age_map.get(best["minor"]) if best["minor"] else None,
         "major_age": age_map.get(best["major"]) if best["major"] else None,
+        "current_age": _age_days(registry_result.get("time_map", {}), current_version),
         "repo_url": registry_result.get("repo_url"),
     }
 

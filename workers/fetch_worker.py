@@ -69,6 +69,8 @@ class FetchWorker(QObject):
             # ── cache hit ────────────────────────────────────────────────────
             if not self._bypass_cache and self._cache:
                 cached = self._cache.get(dep.name, dep.current_version, self._cache_ttl_hours)
+                if cached is not None and "current_age" not in cached:
+                    cached = None  # stale entry — re-fetch to populate current_age
                 if cached is not None:
                     self.package_ready.emit(dep.row_key, cached)
                     self.progress.emit(i + 1, total)

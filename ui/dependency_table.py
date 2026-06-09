@@ -94,6 +94,18 @@ _FALLBACK_LIGHT = (QColor("#f1f5f9"), QColor("#475569"))
 _FALLBACK_DARK  = (QColor("#1e293b"), QColor("#94a3b8"))
 
 
+def _fmt_age_warn(days: int) -> str:
+    years, rem = divmod(days, 365)
+    months = rem // 30
+    if years and months:
+        age = f"{years} year{'s' if years != 1 else ''} {months} month{'s' if months != 1 else ''}"
+    elif years:
+        age = f"{years} year{'s' if years != 1 else ''}"
+    else:
+        age = f"{months or 1} month{'s' if months != 1 else ''}"
+    return f"Installed version is {age} old — consider updating"
+
+
 def _repo_label(url: str) -> str:
     """Return a short platform label for *url*, e.g. 'GitHub', 'GitLab', 'repo'."""
     u = url.lower()
@@ -143,8 +155,10 @@ class DependencyTable(QTableWidget):
         self._row_map: dict[tuple, int] = {}   # dep.row_key → row index
         self._filter_group: Optional[str] = None
         self._hide_uptodate: bool = False
+        self._filter_old_only: bool = False
         self._merge_patch_minor: bool = False
         self._dark: bool = False
+        self._old_age_threshold_days: int = 0
 
         self._setup_table()
 
@@ -230,6 +244,19 @@ class DependencyTable(QTableWidget):
     def set_hide_uptodate(self, hide: bool) -> None:
         self._hide_uptodate = hide
         self._apply_filters()
+
+    def set_filter_old_only(self, old_only: bool) -> None:
+        self._filter_old_only = old_only
+        self._apply_filters()
+
+    def set_old_age_threshold(self, days: int) -> None:
+        if self._old_age_threshold_days == days:
+            return
+        self._old_age_threshold_days = days
+        for dep in self._deps:
+            row = self._row_map.get(dep.row_key)
+            if row is not None:
+                self._refresh_current_cell(row, dep)
 
     def get_selected_deps(self) -> list[DependencyInfo]:
         """Return all deps whose checkbox is checked."""
@@ -413,6 +440,16 @@ class DependencyTable(QTableWidget):
             chip.setObjectName("pkgPendingChip")
             layout.addWidget(chip, 0, Qt.AlignmentFlag.AlignVCenter)
 
+        if (
+            dep.current_age is not None
+            and self._old_age_threshold_days > 0
+            and dep.current_age >= self._old_age_threshold_days
+        ):
+            warn_lbl = QLabel("⚠")
+            warn_lbl.setObjectName("currentVersionWarn")
+            warn_lbl.setToolTip(_fmt_age_warn(dep.current_age))
+            layout.addWidget(warn_lbl, 0, Qt.AlignmentFlag.AlignVCenter)
+
         layout.addStretch()
         self.setCellWidget(row, COL_CURRENT, container)
 
@@ -554,6 +591,16 @@ class DependencyTable(QTableWidget):
             if dep.fetch_status == "loading":
                 hidden = hidden or self.isRowHidden(row)
             elif not dep.has_any_update and dep.fetch_status == "done" and not dep.needs_install:
+                hidden = True
+        if self._filter_old_only:
+            is_old = (
+                dep.current_age is not None
+                and self._old_age_threshold_days > 0
+                and dep.current_age >= self._old_age_threshold_days
+            )
+            if dep.fetch_status == "loading":
+                hidden = hidden or self.isRowHidden(row)
+            elif not is_old:
                 hidden = True
         self.setRowHidden(row, hidden)
 

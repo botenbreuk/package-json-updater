@@ -17,7 +17,7 @@ from datetime import datetime, timedelta, timezone
 from PyQt6.QtCore import QEasingCurve, QEvent, QPropertyAnimation, QRect, QTimer, Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QPainter, QPainterPath
 from PyQt6.QtWidgets import (
-    QAbstractSpinBox, QCheckBox, QFrame, QGraphicsOpacityEffect, QGroupBox,
+    QAbstractSpinBox, QCheckBox, QComboBox, QFrame, QGraphicsOpacityEffect, QGroupBox,
     QHBoxLayout, QLabel, QPushButton, QScrollArea, QSpinBox,
     QStackedWidget, QVBoxLayout, QWidget,
 )
@@ -374,6 +374,10 @@ class SettingsPage(QWidget):
         self._settings = settings
         self._age_spin.setValue(settings.min_age_days)
         self._ttl_spin.setValue(settings.cache_ttl_hours)
+        self._old_ver_spin.setValue(settings.old_version_threshold)
+        idx = self._old_ver_unit.findData(settings.old_version_unit)
+        if idx >= 0:
+            self._old_ver_unit.setCurrentIndex(idx)
         self._select_theme(settings.theme)
         self._merge_cb.blockSignals(True)
         self._merge_cb.setChecked(settings.merge_patch_minor)
@@ -423,7 +427,7 @@ class SettingsPage(QWidget):
         s_layout.setSpacing(2)
 
         self._nav_btns: list[QPushButton] = []
-        for i, label in enumerate(("Theme", "Version Age Filter", "Version Cache", "Display", "About")):
+        for i, label in enumerate(("Theme", "Version Age Filter", "Old Version Warning", "Version Cache", "Display", "About")):
             btn = QPushButton(label)
             btn.setObjectName("settingsNavItem")
             btn.setCheckable(True)
@@ -447,15 +451,17 @@ class SettingsPage(QWidget):
         self._content_stack = QStackedWidget()
         theme_scroll   = self._build_theme_panel()
         age_scroll     = self._build_age_panel()
+        old_ver_scroll = self._build_old_version_panel()
         cache_scroll   = self._build_cache_panel()
         display_scroll = self._build_display_panel()
         about_scroll   = self._build_about_panel()
         self._content_stack.addWidget(theme_scroll)
         self._content_stack.addWidget(age_scroll)
+        self._content_stack.addWidget(old_ver_scroll)
         self._content_stack.addWidget(cache_scroll)
         self._content_stack.addWidget(display_scroll)
         self._content_stack.addWidget(about_scroll)
-        self._panel_scrolls = [theme_scroll, age_scroll, cache_scroll, display_scroll, about_scroll]
+        self._panel_scrolls = [theme_scroll, age_scroll, old_ver_scroll, cache_scroll, display_scroll, about_scroll]
         body_layout.addWidget(self._content_stack, 1)
 
         root.addWidget(body, 1)
@@ -583,6 +589,76 @@ class SettingsPage(QWidget):
         age_save.setCursor(Qt.CursorShape.PointingHandCursor)
         age_save.clicked.connect(self._on_save)
         save_row.addWidget(age_save)
+        layout.addLayout(save_row)
+        layout.addStretch()
+        return self._wrap_scroll(inner)
+
+    def _build_old_version_panel(self) -> QScrollArea:
+        inner = QWidget()
+        layout = QVBoxLayout(inner)
+        layout.setContentsMargins(32, 28, 32, 28)
+        layout.setSpacing(12)
+
+        lbl = QLabel("Old Version Warning")
+        lbl.setObjectName("settingsPanelTitle")
+        layout.addWidget(lbl)
+
+        hint = QLabel(
+            "Show a ⚠ warning next to the installed version when it has not been updated "
+            "for longer than this threshold. Set to 0 to disable the warning."
+        )
+        hint.setObjectName("settingsPanelHint")
+        hint.setWordWrap(True)
+        layout.addWidget(hint)
+
+        row = QHBoxLayout()
+        row.setSpacing(8)
+        row.addWidget(QLabel("Warn after:"))
+        row.addStretch(1)
+
+        self._old_ver_spin = _NoScrollSpinBox()
+        self._old_ver_spin.setRange(0, 99)
+        self._old_ver_spin.setValue(self._settings.old_version_threshold)
+        self._old_ver_spin.setSpecialValueText("Disabled")
+        self._old_ver_spin.setButtonSymbols(QAbstractSpinBox.ButtonSymbols.NoButtons)
+        self._old_ver_spin.setFixedWidth(80)
+
+        old_ver_minus = QPushButton("−")
+        old_ver_minus.setObjectName("spinStepBtn")
+        old_ver_minus.setFixedWidth(32)
+        old_ver_minus.setCursor(Qt.CursorShape.PointingHandCursor)
+        old_ver_minus.clicked.connect(self._old_ver_spin.stepDown)
+
+        old_ver_plus = QPushButton("+")
+        old_ver_plus.setObjectName("spinStepBtn")
+        old_ver_plus.setFixedWidth(32)
+        old_ver_plus.setCursor(Qt.CursorShape.PointingHandCursor)
+        old_ver_plus.clicked.connect(self._old_ver_spin.stepUp)
+
+        self._old_ver_unit = QComboBox()
+        self._old_ver_unit.setObjectName("settingsCombo")
+        self._old_ver_unit.addItem("months", "months")
+        self._old_ver_unit.addItem("years", "years")
+        idx = self._old_ver_unit.findData(self._settings.old_version_unit)
+        if idx >= 0:
+            self._old_ver_unit.setCurrentIndex(idx)
+        self._old_ver_unit.setFixedWidth(90)
+        self._old_ver_unit.setCursor(Qt.CursorShape.PointingHandCursor)
+
+        row.addWidget(old_ver_minus)
+        row.addWidget(self._old_ver_spin)
+        row.addWidget(self._old_ver_unit)
+        row.addWidget(old_ver_plus)
+        layout.addLayout(row)
+
+        save_row = QHBoxLayout()
+        save_row.addStretch()
+        old_ver_save = QPushButton("Save")
+        old_ver_save.setObjectName("btnBlue")
+        old_ver_save.setMinimumWidth(90)
+        old_ver_save.setCursor(Qt.CursorShape.PointingHandCursor)
+        old_ver_save.clicked.connect(self._on_save)
+        save_row.addWidget(old_ver_save)
         layout.addLayout(save_row)
         layout.addStretch()
         return self._wrap_scroll(inner)
@@ -764,9 +840,11 @@ class SettingsPage(QWidget):
     # ── slots ─────────────────────────────────────────────────────────────────
 
     def _on_save(self) -> None:
-        self._settings.min_age_days    = self._age_spin.value()
-        self._settings.cache_ttl_hours = self._ttl_spin.value()
-        self._settings.theme           = self._selected_theme
+        self._settings.min_age_days           = self._age_spin.value()
+        self._settings.cache_ttl_hours        = self._ttl_spin.value()
+        self._settings.theme                  = self._selected_theme
+        self._settings.old_version_threshold  = self._old_ver_spin.value()
+        self._settings.old_version_unit       = self._old_ver_unit.currentData()
         self._settings.save()
         self.settings_changed.emit(self._settings)
         central = self.window().centralWidget()
