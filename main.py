@@ -11,7 +11,7 @@ import os
 # Make the project root importable from any working directory
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from PyQt6.QtGui import QIcon
+from PyQt6.QtGui import QIcon, QPixmap
 from PyQt6.QtWidgets import QApplication, QStyleFactory
 from PyQt6.QtCore import Qt
 from ui.main_window import MainWindow
@@ -38,7 +38,10 @@ def main() -> None:
     app.setOrganizationName("42nl")
     app.setApplicationVersion(VERSION)
 
-    icon = QIcon(_asset("app_icon_clean.png"))
+    png_path = os.path.join(_ROOT, "release", "icons", "icon.png")
+    pix = QPixmap(png_path)
+    pix.setDevicePixelRatio(2.0)  # 1024px image → 512dp @2x
+    icon = QIcon(pix)
     app.setWindowIcon(icon)   # dock / taskbar
 
     window = MainWindow()
