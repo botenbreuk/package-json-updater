@@ -12,7 +12,7 @@ from datetime import datetime
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QFrame, QHBoxLayout, QLabel, QPushButton,
-    QSizePolicy, QVBoxLayout, QWidget,
+    QScrollArea, QSizePolicy, QVBoxLayout, QWidget,
 )
 
 
@@ -111,8 +111,15 @@ class StartScreen(QWidget):
         self._rows_layout = QVBoxLayout(self._rows_widget)
         self._rows_layout.setContentsMargins(0, 0, 0, 0)
         self._rows_layout.setSpacing(4)
-        self._rows_widget.setVisible(False)
-        clo.addWidget(self._rows_widget)
+
+        self._scroll_area = QScrollArea()
+        self._scroll_area.setWidgetResizable(True)
+        self._scroll_area.setFrameShape(QFrame.Shape.NoFrame)
+        self._scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._scroll_area.setMaximumHeight(320)
+        self._scroll_area.setWidget(self._rows_widget)
+        self._scroll_area.setVisible(False)
+        clo.addWidget(self._scroll_area)
 
         self._no_recent_lbl = QLabel("No recent files.")
         self._no_recent_lbl.setObjectName("noRecent")
@@ -144,7 +151,7 @@ class StartScreen(QWidget):
         has_live = bool(valid)          # at least one still exists on disk
 
         self._recent_header.setVisible(has_any)
-        self._rows_widget.setVisible(has_live)
+        self._scroll_area.setVisible(has_live)
         self._no_recent_lbl.setVisible(has_any and not has_live)
 
         for entry in valid:
