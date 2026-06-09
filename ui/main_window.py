@@ -302,11 +302,26 @@ class MainWindow(QMainWindow):
         act_settings.triggered.connect(self._open_settings)
         tb.addAction(act_settings)
 
-        # Spacer pushes the close button to the far right.
-        # The file path lives in the status bar so it can never crowd the button.
         spacer = QWidget()
         spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
         tb.addWidget(spacer)
+
+        self._git_branch_lbl = QLabel()
+        self._git_branch_lbl.setObjectName("gitBranchChip")
+        self._act_git_branch = tb.addWidget(self._git_branch_lbl)
+        self._act_git_branch.setVisible(False)
+
+        self._git_pull_btn = QPushButton("↓ Pull")
+        self._git_pull_btn.setObjectName("gitPullBtn")
+        self._git_pull_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._git_pull_btn.setToolTip("Run git pull")
+        self._git_pull_btn.clicked.connect(self._on_git_pull_clicked)
+        self._act_git_pull = tb.addWidget(self._git_pull_btn)
+        self._act_git_pull.setVisible(False)
+
+        gap = QWidget()
+        gap.setFixedWidth(16)
+        tb.addWidget(gap)
 
         self._act_close = QAction("✕  Close", self)
         self._act_close.triggered.connect(self._close_file)
@@ -345,19 +360,6 @@ class MainWindow(QMainWindow):
         layout.addWidget(self._old_only_btn)
 
         layout.addStretch()
-
-        self._git_branch_lbl = QLabel()
-        self._git_branch_lbl.setObjectName("gitBranchChip")
-        self._git_branch_lbl.setVisible(False)
-        layout.addWidget(self._git_branch_lbl)
-
-        self._git_pull_btn = QPushButton("↓ Pull")
-        self._git_pull_btn.setObjectName("gitPullBtn")
-        self._git_pull_btn.setVisible(False)
-        self._git_pull_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._git_pull_btn.setToolTip("Run git pull")
-        self._git_pull_btn.clicked.connect(self._on_git_pull_clicked)
-        layout.addWidget(self._git_pull_btn)
 
         self._count_label = QLabel("")
         self._count_label.setObjectName("countLabel")
@@ -586,40 +588,40 @@ class MainWindow(QMainWindow):
     def _update_git_status(self, project_dir: Optional[str], fetching: bool = False) -> None:
         """Show branch chip and pull button in the filter bar; hide when no git repo."""
         if not project_dir or not is_git_available():
-            self._git_branch_lbl.setVisible(False)
-            self._git_pull_btn.setVisible(False)
+            self._act_git_branch.setVisible(False)
+            self._act_git_pull.setVisible(False)
             return
 
         git_info = get_git_info(project_dir)
         if git_info is None:
-            self._git_branch_lbl.setVisible(False)
-            self._git_pull_btn.setVisible(False)
+            self._act_git_branch.setVisible(False)
+            self._act_git_pull.setVisible(False)
             return
 
         if fetching:
             self._git_branch_lbl.setText(f"⎇ {git_info.branch}")
             new_name = "gitFetchingChip"
             self._git_branch_lbl.setToolTip("")
-            self._git_pull_btn.setVisible(False)
+            self._act_git_pull.setVisible(False)
         elif git_info.behind > 0:
             self._git_branch_lbl.setText(f"⎇ {git_info.branch}  ↓{git_info.behind}")
             new_name = "gitBehindChip"
             self._git_branch_lbl.setToolTip(f"{git_info.behind} commit(s) behind remote")
-            self._git_pull_btn.setVisible(True)
+            self._act_git_pull.setVisible(True)
             self._git_pull_btn.setEnabled(True)
             self._git_pull_btn.setText("↓ Pull")
         else:
             self._git_branch_lbl.setText(f"⎇ {git_info.branch}")
             new_name = "gitBranchChip"
             self._git_branch_lbl.setToolTip("")
-            self._git_pull_btn.setVisible(False)
+            self._act_git_pull.setVisible(False)
 
         if self._git_branch_lbl.objectName() != new_name:
             self._git_branch_lbl.setObjectName(new_name)
             self._git_branch_lbl.style().unpolish(self._git_branch_lbl)
             self._git_branch_lbl.style().polish(self._git_branch_lbl)
 
-        self._git_branch_lbl.setVisible(True)
+        self._act_git_branch.setVisible(True)
 
         # Defer height sync — the chip expands to fill the filter bar, so its
         # actual height is only known after the layout engine has run.
@@ -627,7 +629,7 @@ class MainWindow(QMainWindow):
 
     def _sync_git_pull_height(self) -> None:
         h = self._git_branch_lbl.height()
-        if h > 0 and self._git_pull_btn.isVisible():
+        if h > 0 and self._act_git_pull.isVisible():
             self._git_pull_btn.setFixedHeight(h)
 
     def _start_git_fetch(self, directory: str) -> None:
