@@ -116,6 +116,7 @@ class StartScreen(QWidget):
         self._scroll_area.setWidgetResizable(True)
         self._scroll_area.setFrameShape(QFrame.Shape.NoFrame)
         self._scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._scroll_area.setMinimumHeight(200)
         self._scroll_area.setMaximumHeight(320)
         self._scroll_area.setWidget(self._rows_widget)
         self._scroll_area.setVisible(False)
@@ -156,6 +157,7 @@ class StartScreen(QWidget):
 
         for entry in valid:
             self._rows_layout.addWidget(self._make_row(entry))
+        self._rows_layout.addStretch()
 
     # ── row builder ───────────────────────────────────────────────────────────
 
@@ -171,7 +173,6 @@ class StartScreen(QWidget):
         row.setObjectName("recentRow")
         row.setAttribute(Qt.WidgetAttribute.WA_Hover, True)
         row.setCursor(Qt.CursorShape.PointingHandCursor)
-
         h = QHBoxLayout(row)
         h.setContentsMargins(14, 12, 14, 12)
         h.setSpacing(12)
