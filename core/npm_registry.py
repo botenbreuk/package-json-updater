@@ -102,11 +102,23 @@ def resolve_updates(
     """
     best: dict[str, Optional[str]] = {"patch": None, "minor": None, "major": None}
     age_map = registry_result.get("age_map", {})
+    time_map = registry_result.get("time_map", {})
+
+    # Anchor: only accept candidates published after the current version.
+    # This filters out higher-semver versions that were published before the
+    # installed one — a real-world pattern in packages like @types/* that
+    # changed versioning conventions over time.
+    current_published = _parse_ts(time_map.get(current_version))
 
     for v in registry_result.get("versions", []):
         bump = categorize_bump(current_version, v)
-        if bump:
-            best[bump] = max_version(best[bump], v)
+        if not bump:
+            continue
+        if current_published is not None:
+            v_published = _parse_ts(time_map.get(v))
+            if v_published is not None and v_published <= current_published:
+                continue
+        best[bump] = max_version(best[bump], v)
 
     return {
         "latest_patch": best["patch"],
@@ -115,7 +127,7 @@ def resolve_updates(
         "patch_age": age_map.get(best["patch"]) if best["patch"] else None,
         "minor_age": age_map.get(best["minor"]) if best["minor"] else None,
         "major_age": age_map.get(best["major"]) if best["major"] else None,
-        "current_age": _age_days(registry_result.get("time_map", {}), current_version),
+        "current_age": _age_days(time_map, current_version),
         "repo_url": registry_result.get("repo_url"),
     }
 
@@ -140,15 +152,20 @@ def _is_old_enough(time_map: dict, version: str, min_age_days: int) -> bool:
     return days is None or days >= min_age_days
 
 
-def _age_days(time_map: dict, version: str) -> Optional[int]:
-    ts = time_map.get(version)
+def _parse_ts(ts: Optional[str]) -> Optional[datetime]:
     if not ts:
         return None
     try:
-        published = datetime.fromisoformat(ts.replace("Z", "+00:00"))
-        return (datetime.now(timezone.utc) - published).days
+        return datetime.fromisoformat(ts.replace("Z", "+00:00"))
     except ValueError:
         return None
+
+
+def _age_days(time_map: dict, version: str) -> Optional[int]:
+    published = _parse_ts(time_map.get(version))
+    if published is None:
+        return None
+    return (datetime.now(timezone.utc) - published).days
 
 
 def _extract_repo_url(repo: "dict | str | None") -> Optional[str]:
