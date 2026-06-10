@@ -120,6 +120,7 @@ class StartScreen(QWidget):
         self._scroll_area.setMaximumHeight(320)
         self._scroll_area.setWidget(self._rows_widget)
         self._scroll_area.setVisible(False)
+        self._scroll_area.verticalScrollBar().rangeChanged.connect(self._on_scroll_range_changed)
         clo.addWidget(self._scroll_area)
 
         self._no_recent_lbl = QLabel("No recent files.")
@@ -158,6 +159,10 @@ class StartScreen(QWidget):
         for entry in valid:
             self._rows_layout.addWidget(self._make_row(entry))
         self._rows_layout.addStretch()
+
+    def _on_scroll_range_changed(self, _min: int, max_val: int) -> None:
+        sb_w = self._scroll_area.verticalScrollBar().width() if max_val > 0 else 0
+        self._rows_layout.setContentsMargins(0, 0, sb_w, 0)
 
     # ── row builder ───────────────────────────────────────────────────────────
 
