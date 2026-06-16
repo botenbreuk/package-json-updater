@@ -55,7 +55,7 @@ Open **⚙ Settings** in the toolbar to configure:
 ## Requirements
 
 - Python 3.11+
-- PyQt6 ≥ 6.6
+- PyQt6 ≥ 6.7 — the UI is built with **Qt Quick (QML)**; PyQt6 bundles the required Qt Quick / Controls modules
 - requests ≥ 2.31
 - packaging ≥ 23.0
 
@@ -88,28 +88,54 @@ python main.py
 
 ## Project structure
 
+The UI is **Qt Quick (QML)**; Python `QObject` controllers expose the
+application logic to QML as context properties (`App`, `Project`, `Install`,
+`Git`). The `core`, `models`, and `workers` layers are pure logic with no UI
+coupling.
+
 ```
 package-json-updater/
-├── main.py                     # Entry point
+├── main.py                     # Entry point — boots the QML engine
 ├── _version.py                 # Version string
 ├── assets/                     # SVG / PNG icons
+├── qml/                        # Qt Quick (QML) user interface
+│   ├── Main.qml                # App window: toolbar, page stack, status bar
+│   ├── screens/                # Top-level pages
+│   │   ├── StartScreen.qml     #   start screen with recent files
+│   │   ├── ProjectView.qml     #   filter bar + dependency table + action bar
+│   │   └── SettingsPage.qml    #   theme, filters, cache, display, about
+│   ├── components/             # Feature-specific widgets
+│   │   ├── DependencyTable.qml #   table header + ListView
+│   │   ├── DependencyRow.qml   #   per-dependency row delegate
+│   │   ├── VersionCell.qml     #   Patch / Minor / Major cell + ↑ button
+│   │   ├── ActionBar.qml, RecentFileRow.qml, HeaderLabel.qml
+│   │   ├── ThemeCard.qml, MiniPreview.qml   # settings theme previews
+│   │   └── NpmInstallOverlay.qml            # live npm-install output overlay
+│   ├── controls/               # Generic reusable widgets
+│   │   ├── AppButton.qml, AppCheckBox.qml, AppComboBox.qml, AppSpinBox.qml
+│   │   ├── AppToolButton.qml, AppToolTip.qml, AppMenu.qml, AppMenuItem.qml
+│   │   ├── Badge.qml, LinkButton.qml, SplitButton.qml, ThinScrollBar.qml
+│   │   └── FlashMessage.qml, ModalDialog.qml
+│   └── Pju/                    # Theme module (import Pju)
+│       ├── qmldir
+│       └── Theme.qml           #   singleton light / dark colour palette
+├── app/                        # QObject controllers + models bound to QML
+│   ├── app_controller.py       # Theme, node/npm versions, settings   → `App`
+│   ├── project_controller.py   # Open/close, fetch, updates, filters  → `Project`
+│   ├── dependency_model.py     # QAbstractListModel + filter proxy
+│   ├── recent_files_model.py   # Recent-files list model
+│   ├── npm_install_controller.py  # npm install via QProcess          → `Install`
+│   └── git_controller.py       # Branch/behind, fetch/pull, .nvmrc    → `Git`
 ├── core/
 │   ├── npm_registry.py         # npm registry API calls
 │   ├── npm_cache.py            # Disk-backed registry result cache
 │   ├── node_env.py             # Resolves PATH for node / npm on all platforms
 │   ├── package_json.py         # Read / write package.json
-│   └── semver_utils.py         # Version comparison helpers
+│   ├── semver_utils.py         # Version comparison helpers
+│   └── git_info.py             # Local git branch / behind-count helpers
 ├── models/
 │   ├── dependency.py           # DependencyInfo dataclass
 │   └── settings.py             # Persistent app settings
-├── ui/
-│   ├── main_window.py          # Main window, theming, orchestration
-│   ├── start_screen.py         # Start screen with recent files
-│   ├── dependency_table.py     # QTableWidget subclass
-│   ├── version_cell_widget.py  # Per-cell version + ↑ button widget
-│   ├── version_delegate.py     # Item delegate for version cells
-│   ├── npm_install_dialog.py   # In-app overlay for running npm install
-│   └── settings_page.py        # Settings full-page view (stack page 2)
 ├── workers/
 │   └── fetch_worker.py         # QThread worker for npm registry fetches
 └── release/

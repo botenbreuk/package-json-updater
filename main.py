@@ -1,62 +1,83 @@
 """
 Package.json Updater — desktop application entry point.
 
+Runs the Qt Quick (QML) front-end.
+
 Run with:
-    python main.py
+    python main.py [path/to/package.json]
 """
+import os
 import signal
 import sys
-import os
 
 # Make the project root importable from any working directory
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+from PyQt6.QtCore import QUrl
 from PyQt6.QtGui import QIcon, QPixmap
-from PyQt6.QtWidgets import QApplication, QStyleFactory
-from PyQt6.QtCore import Qt
-from ui.main_window import MainWindow
+from PyQt6.QtQml import QQmlApplicationEngine
+from PyQt6.QtWidgets import QApplication
+
+from app.app_controller import AppController
+from app.project_controller import ProjectController
+from app.npm_install_controller import NpmInstallController
+from app.git_controller import GitController
+from core.npm_cache import NpmCache
+from models.settings import AppSettings
 from _version import VERSION
 
-_ROOT = os.path.dirname(os.path.abspath(__file__))
-
-def _asset(name: str) -> str:
-    return os.path.join(_ROOT, "assets", name)
+# Resource root: the PyInstaller bundle dir when frozen, else the source tree.
+_ROOT = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
 
 
 def main() -> None:
-    # Enable high-DPI support
     os.environ.setdefault("QT_ENABLE_HIGHDPI_SCALING", "1")
 
     app = QApplication(sys.argv)
-
-    # Force Qt's own Fusion renderer so that ALL appearance (including floating
-    # pop-ups like ComboBox drop-downs) is controlled by our stylesheet and
-    # never overridden by the macOS system light/dark theme.
-    app.setStyle(QStyleFactory.create("Fusion"))
-
     app.setApplicationName("Package.json Updater")
     app.setOrganizationName("42nl")
     app.setApplicationVersion(VERSION)
 
     png_path = os.path.join(_ROOT, "release", "icons", "icon.png")
     pix = QPixmap(png_path)
-    pix.setDevicePixelRatio(2.0)  # 1024px image → 512dp @2x
-    icon = QIcon(pix)
-    app.setWindowIcon(icon)   # dock / taskbar
+    pix.setDevicePixelRatio(2.0)
+    app.setWindowIcon(QIcon(pix))
 
-    window = MainWindow()
-    window.setWindowIcon(icon)  # title bar & Alt+Tab thumbnail
-    window.show()
+    settings = AppSettings()
+    settings.load()
+    cache = NpmCache()
 
-    # Allow passing a package.json path as a command-line argument
-    if len(sys.argv) > 1:
-        path = sys.argv[1]
-        if os.path.isfile(path):
-            window._open_file(os.path.abspath(path))
+    app_controller = AppController(settings, cache)
+    project_controller = ProjectController(settings, cache)
+    install_controller = NpmInstallController()
+    git_controller = GitController()
 
-    # Restore the OS default SIGINT handler so Ctrl+C terminates the process
-    # cleanly.  Without this Qt's C++ event loop intercepts the signal at an
-    # arbitrary point and calls abort(), producing the ugly traceback + crash.
+    # Settings changes flow App → Project (re-filter / re-fetch as needed).
+    app_controller.displaySettingsChanged.connect(project_controller.applyDisplaySettings)
+    app_controller.reFetchRequested.connect(project_controller.refetchForSettings)
+
+    engine = QQmlApplicationEngine()
+    ctx = engine.rootContext()
+    ctx.setContextProperty("App", app_controller)
+    ctx.setContextProperty("Project", project_controller)
+    ctx.setContextProperty("Install", install_controller)
+    ctx.setContextProperty("Git", git_controller)
+    engine.addImportPath(os.path.join(_ROOT, "qml"))
+    engine.load(QUrl.fromLocalFile(os.path.join(_ROOT, "qml", "Main.qml")))
+
+    if not engine.rootObjects():
+        sys.exit(1)
+
+    app.aboutToQuit.connect(app_controller.shutdown)
+    app.aboutToQuit.connect(project_controller.shutdown)
+    app.aboutToQuit.connect(install_controller.shutdown)
+    app.aboutToQuit.connect(git_controller.shutdown)
+
+    # Allow passing a package.json path as a command-line argument.
+    if len(sys.argv) > 1 and os.path.isfile(sys.argv[1]):
+        project_controller.openFile(os.path.abspath(sys.argv[1]))
+
+    # Restore the OS default SIGINT handler so Ctrl+C terminates cleanly.
     signal.signal(signal.SIGINT, signal.SIG_DFL)
 
     sys.exit(app.exec())
