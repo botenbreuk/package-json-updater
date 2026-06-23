@@ -30,9 +30,9 @@ QtObject {
     readonly property color textHeading: dark ? "#f1f5f9" : "#0f172a"
     readonly property color textBody:    dark ? "#cbd5e1" : "#334155"
     readonly property color textTable:   dark ? "#e2e8f0" : "#1e293b"
-    readonly property color textMuted:   "#64748b"
-    readonly property color textSubtle:  dark ? "#94a3b8" : "#94a3b8"
-    readonly property color textFaint:   dark ? "#475569" : "#cbd5e1"
+    readonly property color textMuted:   dark ? "#94a3b8" : "#64748b"
+    readonly property color textSubtle:  dark ? "#94a3b8" : "#64748b"
+    readonly property color textFaint:   dark ? "#475569" : "#94a3b8"
 
     // ── accent (blue) ─────────────────────────────────────────────────────────
     readonly property color accent:         "#3b82f6"
