@@ -10,6 +10,9 @@ RowLayout {
     property int to: 100
     property string suffix: ""
     property string specialText: ""
+    property var textFromValue: null
+    property var computeNext: function(v) { return v + 1 }
+    property var computePrev: function(v) { return v - 1 }
     property real boxWidth: 150
 
     spacing: 8
@@ -29,7 +32,7 @@ RowLayout {
             anchors.fill: parent
             hoverEnabled: true
             cursorShape: Qt.PointingHandCursor
-            onClicked: spin.value = spin.clamp(spin.value - 1)
+            onClicked: spin.value = spin.clamp(spin.computePrev(spin.value))
         }
     }
 
@@ -42,8 +45,11 @@ RowLayout {
         border.color: Theme.border
         Text {
             anchors.centerIn: parent
-            text: (spin.value === spin.from && spin.specialText !== "") ? spin.specialText
-                                                                        : (spin.value + spin.suffix)
+            text: {
+                if (spin.value === spin.from && spin.specialText !== "") return spin.specialText
+                if (spin.textFromValue) return spin.textFromValue(spin.value)
+                return spin.value + spin.suffix
+            }
             color: Theme.textBody
             font.pixelSize: Theme.fontSize
         }
@@ -62,7 +68,7 @@ RowLayout {
             anchors.fill: parent
             hoverEnabled: true
             cursorShape: Qt.PointingHandCursor
-            onClicked: spin.value = spin.clamp(spin.value + 1)
+            onClicked: spin.value = spin.clamp(spin.computeNext(spin.value))
         }
     }
 }

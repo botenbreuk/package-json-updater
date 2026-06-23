@@ -192,7 +192,16 @@ Item {
                         Layout.leftMargin: 32; Layout.rightMargin: 32; Layout.fillWidth: true; Layout.topMargin: 4
                         Text { text: qsTr("Cache TTL:"); color: Theme.textBody; font.pixelSize: Theme.fontSize }
                         Item { Layout.fillWidth: true }
-                        AppSpinBox { id: ttlSpin; from: 0; to: 168; suffix: qsTr(" hours"); specialText: qsTr("Disabled") }
+                        AppSpinBox {
+                            id: ttlSpin; from: 0; to: 672; specialText: qsTr("Disabled")
+                            textFromValue: function(v) {
+                                if (v % 168 === 0) { var w = v / 168; return w + (w === 1 ? qsTr(" week") : qsTr(" weeks")) }
+                                if (v % 24  === 0) { var d = v / 24;  return d + (d === 1 ? qsTr(" day")  : qsTr(" days"))  }
+                                return v + qsTr(" hours")
+                            }
+                            computeNext: function(v) { return v >= 168 ? v + 168 : v >= 24 ? v + 24 : v + 1 }
+                            computePrev: function(v) { return v > 168  ? v - 168 : v > 24  ? v - 24 : v - 1 }
+                        }
                     }
                     RowLayout {
                         Layout.leftMargin: 32; Layout.rightMargin: 32; Layout.fillWidth: true; Layout.topMargin: 4
@@ -207,7 +216,7 @@ Item {
                         Layout.leftMargin: 32; Layout.rightMargin: 32; Layout.fillWidth: true
                     }
                     AppButton {
-                        variant: "ghost"
+                        variant: "danger"
                         text: qsTr("Clear Cache Now")
                         Layout.leftMargin: 32
                         onClicked: settingsPage.clearCacheRequested()
