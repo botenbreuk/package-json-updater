@@ -5,7 +5,7 @@ import Pju
 Button {
     id: control
 
-    // primary | secondary | danger | purple | ghost
+    // primary | secondary | danger | danger-ghost | purple | ghost
     property string variant: "primary"
 
     font.pixelSize: Theme.fontSize
@@ -30,6 +30,8 @@ Button {
             return control.down ? Theme.purplePressed : (control.hovered ? Theme.purpleHover : Theme.purple)
         if (variant === "danger")
             return control.down ? Theme.dangerPressed : (control.hovered ? Theme.dangerHover : Theme.danger)
+        if (variant === "danger-ghost")
+            return control.down || control.hovered ? Qt.rgba(0.94, 0.27, 0.27, 0.15) : "transparent"
         if (variant === "ghost")
             return control.hovered ? Theme.surfaceMuted : "transparent"
         return control.down || control.hovered ? Theme.surfaceMuted : Theme.surface
@@ -37,10 +39,11 @@ Button {
 
     readonly property color _fg: {
         if (_filled) return Theme.textOnAccent
+        if (variant === "danger-ghost") return control.enabled ? Theme.danger : Theme.textSubtle
         return control.enabled ? Theme.textBody : Theme.textSubtle
     }
 
-    readonly property bool _outlined: variant === "secondary" || variant === "ghost"
+    readonly property bool _outlined: variant === "secondary" || variant === "ghost" || variant === "danger-ghost"
 
     HoverHandler {
         enabled: control.enabled
@@ -60,6 +63,6 @@ Button {
         radius: 8
         color: control._bg
         border.width: control._outlined ? 1 : 0
-        border.color: control.hovered ? Theme.borderStrong : Theme.border
+        border.color: control.variant === "danger-ghost" ? Theme.danger : (control.hovered ? Theme.borderStrong : Theme.border)
     }
 }

@@ -216,7 +216,7 @@ Item {
                         Layout.leftMargin: 32; Layout.rightMargin: 32; Layout.fillWidth: true
                     }
                     AppButton {
-                        variant: "danger"
+                        variant: "danger-ghost"
                         text: qsTr("Clear Cache Now")
                         Layout.leftMargin: 32
                         onClicked: settingsPage.clearCacheRequested()
