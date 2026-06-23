@@ -37,13 +37,14 @@ RowLayout {
     }
 
     Rectangle {
-        Layout.preferredWidth: spin.boxWidth
+        Layout.preferredWidth: Math.max(spin.boxWidth, displayText.implicitWidth + 24)
         Layout.preferredHeight: 38
         radius: 6
         color: Theme.surface
         border.width: 2
         border.color: Theme.border
         Text {
+            id: displayText
             anchors.centerIn: parent
             text: {
                 if (spin.value === spin.from && spin.specialText !== "") return spin.specialText

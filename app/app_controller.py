@@ -81,6 +81,7 @@ class AppController(QObject):
 
     darkChanged = pyqtSignal()
     themeChanged = pyqtSignal()
+    languageChanged = pyqtSignal()
     versionsChanged = pyqtSignal()
     displaySettingsChanged = pyqtSignal()
     settingsChanged = pyqtSignal()
@@ -125,6 +126,21 @@ class AppController(QObject):
         if self._settings.dark_mode != was_dark:
             self.darkChanged.emit()
         self.flash.emit("✓  Theme saved")
+
+    # ── language ───────────────────────────────────────────────────────────────
+
+    @pyqtProperty(str, notify=languageChanged)
+    def language(self) -> str:
+        return self._settings.language
+
+    @pyqtSlot(str)
+    def setLanguage(self, value: str) -> None:
+        if value not in ("system", "en", "nl") or value == self._settings.language:
+            return
+        self._settings.language = value
+        self._settings.save()
+        self.languageChanged.emit()
+        self.flash.emit("✓  Language saved")
 
     # ── display settings (read here, mutated by the settings page) ─────────────
 

@@ -61,6 +61,7 @@ class AppSettings:
     # {"path/to/package.json": ["dep-a", "dep-b"]}
     old_version_threshold: int = 12   # number of months or years (0 = disabled)
     old_version_unit: str = "months"  # "months" | "years"
+    language: str = "system"          # "system" | "en" | "nl"
 
     # ── resolved theme ────────────────────────────────────────────────────────
 
@@ -128,6 +129,11 @@ class AppSettings:
             self.theme = "dark" if s.value("dark_mode", False, type=bool) else "light"
         # else: keep dataclass default ("system")
 
+        raw_lang = s.value("language", None)
+        if raw_lang in ("system", "en", "nl"):
+            self.language = raw_lang
+        # else: keep dataclass default ("system")
+
     def save(self) -> None:
         s = _make_settings()
         s.setValue("min_age_days",     self.min_age_days)
@@ -140,4 +146,5 @@ class AppSettings:
         s.setValue("old_version_unit",       self.old_version_unit)
         s.setValue("recent_files",     json.dumps(self.recent_files))
         s.setValue("pending_installs", json.dumps(self.pending_installs))
+        s.setValue("language",         self.language)
         s.remove("dark_mode")   # clean up migrated key

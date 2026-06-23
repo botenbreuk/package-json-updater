@@ -38,7 +38,7 @@ Item {
                 spacing: 2
 
                 Repeater {
-                    model: [qsTr("Theme"), qsTr("Version Age Filter"), qsTr("Old Version Warning"),
+                    model: [qsTr("General"), qsTr("Version Age Filter"), qsTr("Old Version Warning"),
                             qsTr("Version Cache"), qsTr("Display"), qsTr("About")]
 
                     Rectangle {
@@ -55,10 +55,13 @@ Item {
                             anchors.verticalCenter: parent.verticalCenter
                             anchors.left: parent.left
                             anchors.leftMargin: 12
+                            anchors.right: parent.right
+                            anchors.rightMargin: 8
                             text: parent.modelData
                             color: parent.active ? Theme.accentHover : Theme.textMuted
                             font.pixelSize: 14
                             font.bold: parent.active
+                            elide: Text.ElideRight
                         }
 
                         MouseArea {
@@ -80,7 +83,7 @@ Item {
             Layout.fillHeight: true
             currentIndex: settingsPage.navIndex
 
-            // ── Theme ───────────────────────────────────────────────────────
+            // ── General ─────────────────────────────────────────────────────
             ScrollView {
                 contentWidth: availableWidth
                 ScrollBar.vertical: ThinScrollBar {}
@@ -88,13 +91,15 @@ Item {
                     width: parent.width
                     Item { Layout.preferredHeight: 28 }
 
-                    Text { text: qsTr("Theme"); color: Theme.textHeading; font.pixelSize: 20; font.bold: true; Layout.leftMargin: 32 }
+                    Text { text: qsTr("General"); color: Theme.textHeading; font.pixelSize: 20; font.bold: true; Layout.leftMargin: 32 }
+
+                    Rectangle { Layout.fillWidth: true; Layout.leftMargin: 32; Layout.rightMargin: 32; Layout.topMargin: 4; implicitHeight: 1; color: Theme.border }
+                    Text { text: qsTr("Theme"); color: Theme.textBody; font.pixelSize: 16; font.bold: true; Layout.leftMargin: 32 }
                     Text {
                         text: qsTr("System default follows your OS light/dark preference.")
                         color: Theme.textMuted; font.pixelSize: 14; wrapMode: Text.WordWrap
                         Layout.leftMargin: 32; Layout.rightMargin: 32; Layout.fillWidth: true
                     }
-
                     Flow {
                         Layout.fillWidth: true
                         Layout.leftMargin: 32
@@ -102,9 +107,141 @@ Item {
                         Layout.topMargin: 8
                         spacing: 12
                         ThemeCard { value: "system"; label: qsTr("System default"); selected: App.theme === "system"; onPicked: (v) => App.setTheme(v) }
-                        ThemeCard { value: "light"; label: qsTr("Light"); selected: App.theme === "light"; onPicked: (v) => App.setTheme(v) }
-                        ThemeCard { value: "dark"; label: qsTr("Dark"); selected: App.theme === "dark"; onPicked: (v) => App.setTheme(v) }
+                        ThemeCard { value: "light";  label: qsTr("Light");          selected: App.theme === "light";  onPicked: (v) => App.setTheme(v) }
+                        ThemeCard { value: "dark";   label: qsTr("Dark");           selected: App.theme === "dark";   onPicked: (v) => App.setTheme(v) }
                     }
+
+                    Rectangle { Layout.fillWidth: true; Layout.leftMargin: 32; Layout.rightMargin: 32; Layout.topMargin: 16; implicitHeight: 1; color: Theme.border }
+                    Text { text: qsTr("Language"); color: Theme.textBody; font.pixelSize: 16; font.bold: true; Layout.leftMargin: 32 }
+                    Text {
+                        text: qsTr("System default uses your OS language.")
+                        color: Theme.textMuted; font.pixelSize: 14; wrapMode: Text.WordWrap
+                        Layout.leftMargin: 32; Layout.rightMargin: 32; Layout.fillWidth: true
+                    }
+                    ComboBox {
+                        id: langCombo
+                        Layout.leftMargin: 32
+                        Layout.topMargin: 8
+                        implicitWidth: 220
+                        implicitHeight: 34
+
+                        readonly property var langItems: [
+                            { value: "system", flag: "🌐", label: qsTr("System default") },
+                            { value: "en",     flag: "🇬🇧", label: qsTr("English") },
+                            { value: "nl",     flag: "🇳🇱", label: qsTr("Dutch") }
+                        ]
+
+                        model: langItems
+                        textRole: "label"
+
+                        Component.onCompleted: {
+                            for (var i = 0; i < langItems.length; i++) {
+                                if (langItems[i].value === App.language) { currentIndex = i; break }
+                            }
+                        }
+
+                        Connections {
+                            target: App
+                            function onLanguageChanged() {
+                                for (var i = 0; i < langCombo.langItems.length; i++) {
+                                    if (langCombo.langItems[i].value === App.language) { langCombo.currentIndex = i; break }
+                                }
+                            }
+                        }
+
+                        contentItem: Item {
+                            Row {
+                                anchors.verticalCenter: parent.verticalCenter
+                                anchors.left: parent.left
+                                anchors.leftMargin: 10
+                                anchors.right: parent.right
+                                anchors.rightMargin: 28
+                                spacing: 8
+                                Text {
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    text: langCombo.currentIndex >= 0 ? langCombo.langItems[langCombo.currentIndex].flag : ""
+                                    font.pixelSize: 16
+                                }
+                                Text {
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    text: langCombo.currentIndex >= 0 ? langCombo.langItems[langCombo.currentIndex].label : ""
+                                    font.pixelSize: Theme.fontSize
+                                    color: Theme.textBody
+                                    elide: Text.ElideRight
+                                }
+                            }
+                        }
+
+                        indicator: Text {
+                            text: "▾"
+                            color: Theme.textMuted
+                            font.pixelSize: 12
+                            anchors.right: parent.right
+                            anchors.rightMargin: 10
+                            anchors.verticalCenter: parent.verticalCenter
+                        }
+
+                        background: Rectangle {
+                            radius: 6
+                            color: Theme.surface
+                            border.width: 1
+                            border.color: langCombo.activeFocus ? Theme.accent : Theme.border
+                        }
+
+                        delegate: ItemDelegate {
+                            id: langDelegate
+                            required property int index
+                            required property var modelData
+                            width: langCombo.width
+                            height: 36
+                            contentItem: Item {
+                                Row {
+                                    anchors.verticalCenter: parent.verticalCenter
+                                    anchors.left: parent.left
+                                    anchors.leftMargin: 8
+                                    spacing: 8
+                                    Text {
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        text: langDelegate.modelData.flag
+                                        font.pixelSize: 16
+                                    }
+                                    Text {
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        text: langDelegate.modelData.label
+                                        font.pixelSize: Theme.fontSize
+                                        color: Theme.textBody
+                                    }
+                                }
+                            }
+                            background: Rectangle {
+                                color: langCombo.highlightedIndex === langDelegate.index ? Theme.accentSoftBg : "transparent"
+                            }
+                        }
+
+                        popup: Popup {
+                            y: langCombo.height + 2
+                            width: langCombo.width
+                            implicitHeight: contentItem.implicitHeight + 2
+                            padding: 1
+                            background: Rectangle {
+                                radius: 6
+                                color: Theme.surface
+                                border.width: 1
+                                border.color: Theme.border
+                            }
+                            contentItem: ListView {
+                                clip: true
+                                implicitHeight: contentHeight
+                                model: langCombo.popup.visible ? langCombo.delegateModel : null
+                                currentIndex: langCombo.highlightedIndex
+                                ScrollBar.vertical: ThinScrollBar {}
+                            }
+                        }
+
+                        HoverHandler { cursorShape: Qt.PointingHandCursor }
+                        onActivated: (i) => App.setLanguage(langItems[i].value)
+                    }
+
                     Item { Layout.fillHeight: true; Layout.preferredHeight: 28 }
                 }
             }
