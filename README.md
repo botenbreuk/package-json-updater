@@ -52,6 +52,17 @@ Open **⚙ Settings** in the toolbar to configure:
 
 ---
 
+## Data storage
+
+The app stores two files on disk. Both are created automatically on first run.
+
+| File | Windows | macOS | Linux |
+| --- | --- | --- | --- |
+| **Settings** (`settings.ini`) | `%APPDATA%\PackageJsonUpdater\` | `~/.config/PackageJsonUpdater/` | `$XDG_CONFIG_HOME/PackageJsonUpdater/` (default `~/.config/PackageJsonUpdater/`) |
+| **npm cache** (`npm_cache.json`) | `%APPDATA%\PackageJsonUpdater\` | `~/Library/Caches/package-json-updater/` | `$XDG_CACHE_HOME/package-json-updater/` (default `~/.cache/package-json-updater/`) |
+
+---
+
 ## Requirements
 
 - Python 3.11+
