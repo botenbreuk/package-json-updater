@@ -1,5 +1,5 @@
 import QtQuick
-import Pju
+import App
 
 Item {
     id: cb

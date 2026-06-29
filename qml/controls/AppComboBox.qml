@@ -1,6 +1,6 @@
 import QtQuick
 import QtQuick.Controls.Basic
-import Pju
+import App
 
 ComboBox {
     id: combo

@@ -1,6 +1,6 @@
 import QtQuick
 import QtQuick.Layouts
-import Pju
+import App
 
 Item {
     id: modal
