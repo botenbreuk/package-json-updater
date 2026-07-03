@@ -20,8 +20,9 @@ from PyQt6.QtWidgets import QApplication
 
 from app.app_controller import AppController
 from app.project_controller import ProjectController
-from app.npm_install_controller import NpmInstallController
+from app.install_controller import InstallController
 from app.git_controller import GitController
+from app.package_manager_controller import PackageManagerController
 from core.npm_cache import NpmCache
 from models.settings import AppSettings
 from _version import VERSION
@@ -49,12 +50,24 @@ def main() -> None:
 
     app_controller = AppController(settings, cache)
     project_controller = ProjectController(settings, cache)
-    install_controller = NpmInstallController()
+    install_controller = InstallController(settings)
     git_controller = GitController()
+    pm_controller = PackageManagerController(settings)
 
     # Settings changes flow App → Project (re-filter / re-fetch as needed).
     app_controller.displaySettingsChanged.connect(project_controller.applyDisplaySettings)
     app_controller.reFetchRequested.connect(project_controller.refetchForSettings)
+
+    # The active package manager follows the open project; the status-bar
+    # version follows the active package manager.
+    project_controller.projectChanged.connect(
+        lambda: pm_controller.setProject(project_controller.projectDir))
+    pm_controller.activeChanged.connect(
+        lambda: app_controller.refreshManagerVersion(pm_controller.activeId))
+    # Default / override edits in Settings re-resolve the open project's manager.
+    app_controller.pmSettingsChanged.connect(pm_controller.reevaluate)
+    # A pinned choice from the picker refreshes the Settings overrides list.
+    pm_controller.overridesChanged.connect(app_controller.pmSettingsChanged)
 
     engine = QQmlApplicationEngine()
     ctx = engine.rootContext()
@@ -62,6 +75,7 @@ def main() -> None:
     ctx.setContextProperty("Project", project_controller)
     ctx.setContextProperty("Install", install_controller)
     ctx.setContextProperty("Git", git_controller)
+    ctx.setContextProperty("Pm", pm_controller)
     engine.addImportPath(os.path.join(_ROOT, "qml"))
     engine.load(QUrl.fromLocalFile(os.path.join(_ROOT, "qml", "Main.qml")))
 

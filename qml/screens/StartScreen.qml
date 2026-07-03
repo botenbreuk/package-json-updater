@@ -39,7 +39,7 @@ Item {
 
         Text {
             Layout.alignment: Qt.AlignHCenter
-            text: qsTr("Check and update npm dependencies")
+            text: qsTr("Check and update your project dependencies")
             font.pixelSize: Theme.fontSize
             color: Theme.textMuted
         }

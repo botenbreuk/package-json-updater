@@ -2,7 +2,7 @@
 
 # Package.json Updater
 
-A desktop app for keeping npm dependencies up to date. Open a `package.json`, see available patch / minor / major upgrades fetched live from the npm registry, and apply them in one click — without touching the terminal.
+A desktop app for keeping your JavaScript dependencies up to date. It works with **npm, Yarn, pnpm, and Bun**. Open a `package.json`, see available patch / minor / major upgrades fetched live from the npm registry, and apply them in one click — without touching the terminal.
 
 ![Screenshot](app_image.png)
 
@@ -14,7 +14,8 @@ A desktop app for keeping npm dependencies up to date. Open a `package.json`, se
 - **Constraint-type badge** — each row shows the version constraint type (Compatible `^`, Tilde `~`, Exact, Range, Wildcard, Local, Any)
 - **Per-dependency update button** — click ↑ on any version to write that single change to disk immediately, no re-fetch required
 - **Bulk updates** — select multiple packages with checkboxes (including a header _Select All_) and hit _Update Selected_, or use _Update All_ with a configurable scope (Patch & Minor only, or all levels including Major)
-- **npm install** — run `npm install` in the project directory from the toolbar; an in-app overlay streams the live output and reports success or failure
+- **Package-manager aware** — detects npm / Yarn / pnpm / Bun from the project's lockfile, asks when several lockfiles are present, and lets you choose a manager per folder; every command-line action uses the right tool
+- **Install** — run your project's install command (`npm install`, `yarn install`, `pnpm install`, or `bun install`) in the project directory from the toolbar; an in-app overlay streams the live output and reports success or failure
 - **npm result cache** — fetched registry data is cached to disk with a configurable TTL so subsequent opens are instant; cache age is shown in the status bar
 - **Hard refresh** — bypass the cache entirely and re-fetch all package data fresh from the registry
 - **Version age filter** — hide versions published less than N days ago to avoid recently-yanked releases
@@ -35,20 +36,42 @@ A desktop app for keeping npm dependencies up to date. Open a `package.json`, se
 3. Upgrades appear colour-coded by bump level — **blue** patch, **green** minor, **amber** major
 4. Click the **↑** button in any cell to apply that single upgrade immediately
 5. Or tick the checkboxes and click **Update Selected** / **Update All**
-6. Click **📦 npm install** in the toolbar to install the written changes without leaving the app
+6. Click **📦 install** in the toolbar to install the written changes without leaving the app
 
 ### Settings
 
 Open **⚙ Settings** in the toolbar to configure:
 
 | Panel                   | Options                                                                             |
-| ----------------------- | ----------------------------------------------------------------------------------- |
+|-------------------------|-------------------------------------------------------------------------------------|
 | **Theme**               | Light or dark                                                                       |
 | **Version Age Filter**  | Only show versions published at least N days ago (default: 0 — no filter)           |
 | **Old Version Warning** | Show ⚠ on packages not updated in N months/years (default: 12 months; 0 = disabled) |
 | **Version Cache**       | Cache TTL (default: 24 h; 0 = always fetch live) and _Clear Cache Now_              |
 | **Display**             | Merge Patch and Minor columns into one                                              |
+| **Package Managers**    | Default package manager, and per-folder overrides you can remove                    |
 | **About**               | App version                                                                         |
+
+---
+
+## Package managers
+
+The app supports **npm, Yarn, pnpm, and Bun**. All four read and write the same
+`package.json` and resolve versions from the npm registry, so only the
+command-line operations differ. The active manager is resolved per project, in
+this order:
+
+1. A per-folder override you've pinned (via the 📦 toolbar badge or Settings)
+2. The `packageManager` field in `package.json` (Corepack)
+3. The lockfile in the project or the nearest parent for monorepos:
+   `package-lock.json` / `npm-shrinkwrap.json` → npm, `yarn.lock` → Yarn,
+   `pnpm-lock.yaml` → pnpm, `bun.lock` / `bun.lockb` → Bun
+4. If several lockfiles are found, the app asks which manager to use
+5. Otherwise, the global default (npm, unless changed in Settings)
+
+The current manager is shown in the toolbar badge and status bar. Click the
+badge to change it. Per-folder pins and the global default are managed under
+**Settings → Package Managers**.
 
 ---
 
@@ -69,6 +92,12 @@ The app stores two files on disk. Both are created automatically on first run.
 - PyQt6 ≥ 6.7 — the UI is built with **Qt Quick (QML)**; PyQt6 bundles the required Qt Quick / Controls modules
 - requests ≥ 2.31
 - packaging ≥ 23.0
+
+At runtime, Node.js and whichever package manager your projects use must be
+installed and on your `PATH` (npm ships with Node; enable Yarn/pnpm with
+`corepack enable`, or install Bun separately). The app also searches common
+install locations when resolving them: 
+Homebrew, Volta, nvm, fnm, asdf, `~/.bun/bin`, and the pnpm home directory.
 
 ---
 
@@ -101,8 +130,8 @@ python main.py
 
 The UI is **Qt Quick (QML)**; Python `QObject` controllers expose the
 application logic to QML as context properties (`App`, `Project`, `Install`,
-`Git`). The `core`, `models`, and `workers` layers are pure logic with no UI
-coupling.
+`Pm`, `Git`). The `core`, `models`, and `workers` layers are pure logic with no
+UI coupling.
 
 ```
 package-json-updater/
@@ -121,34 +150,43 @@ package-json-updater/
 │   │   ├── VersionCell.qml     #   Patch / Minor / Major cell + ↑ button
 │   │   ├── ActionBar.qml, RecentFileRow.qml, HeaderLabel.qml
 │   │   ├── ThemeCard.qml, MiniPreview.qml   # settings theme previews
-│   │   └── NpmInstallOverlay.qml            # live npm-install output overlay
+│   │   ├── InstallOverlay.qml               # live install output overlay
+│   │   └── PackageManagerDialog.qml         # package-manager picker dialog
 │   ├── controls/               # Generic reusable widgets
 │   │   ├── AppButton.qml, AppCheckBox.qml, AppComboBox.qml, AppSpinBox.qml
 │   │   ├── AppToolButton.qml, AppToolTip.qml, AppMenu.qml, AppMenuItem.qml
 │   │   ├── Badge.qml, LinkButton.qml, SplitButton.qml, ThinScrollBar.qml
 │   │   └── FlashMessage.qml, ModalDialog.qml
-│   └── Pju/                    # Theme module (import Pju)
+│   └── App/                    # Theme module (import App)
 │       ├── qmldir
 │       └── Theme.qml           #   singleton light / dark colour palette
 ├── app/                        # QObject controllers + models bound to QML
-│   ├── app_controller.py       # Theme, node/npm versions, settings   → `App`
-│   ├── project_controller.py   # Open/close, fetch, updates, filters  → `Project`
-│   ├── dependency_model.py     # QAbstractListModel + filter proxy
-│   ├── recent_files_model.py   # Recent-files list model
-│   ├── npm_install_controller.py  # npm install via QProcess          → `Install`
-│   └── git_controller.py       # Branch/behind, fetch/pull, .nvmrc    → `Git`
+│   ├── app_controller.py               # Theme, versions, settings, PM defaults → `App`
+│   ├── project_controller.py           # Open/close, fetch, updates, filters    → `Project`
+│   ├── dependency_model.py             # QAbstractListModel + filter proxy
+│   ├── recent_files_model.py           # Recent-files list model
+│   ├── install_controller.py           # Active PM's install via QProcess        → `Install`
+│   ├── package_manager_controller.py   # Active PM + picker dialog               → `Pm`
+│   └── git_controller.py               # Branch/behind, fetch/pull, .nvmrc       → `Git`
 ├── core/
 │   ├── npm_registry.py         # npm registry API calls
 │   ├── npm_cache.py            # Disk-backed registry result cache
-│   ├── node_env.py             # Resolves PATH for node / npm on all platforms
+│   ├── node_env.py             # Resolves PATH for node + package managers
 │   ├── package_json.py         # Read / write package.json
+│   ├── package_manager.py      # PM detection + per-manager command builders
 │   ├── semver_utils.py         # Version comparison helpers
 │   └── git_info.py             # Local git branch / behind-count helpers
 ├── models/
 │   ├── dependency.py           # DependencyInfo dataclass
-│   └── settings.py             # Persistent app settings
+│   └── settings.py             # Persistent app settings (incl. PM default + overrides)
 ├── workers/
 │   └── fetch_worker.py         # QThread worker for npm registry fetches
+├── tests/                      # unittest suite (pure logic + controllers)
+│   ├── test_package_manager.py            # detection + command builders
+│   ├── test_settings_package_manager.py   # settings persistence
+│   ├── test_exec_wiring.py                # install/version wiring
+│   ├── test_pm_controller.py              # picker + overrides
+│   └── test_app_controller_pm.py          # settings-panel API
 └── release/
     ├── build.sh / build.bat    # Platform-specific PyInstaller build scripts
     └── package_json_updater.spec  # PyInstaller spec

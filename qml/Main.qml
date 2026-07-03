@@ -75,6 +75,11 @@ ApplicationWindow {
         function onSucceeded() { Project.clearPending() }
     }
 
+    Connections {
+        target: Pm
+        function onShowPicker(currentId) { pmDialog.open(currentId) }
+    }
+
     Shortcut {
         sequences: [StandardKey.Refresh]
         enabled: Project.hasFile
@@ -220,6 +225,51 @@ ApplicationWindow {
                 }
             }
 
+            Rectangle {
+                id: pmBadge
+                Layout.alignment: Qt.AlignVCenter
+                visible: !root.settingsOpen && Project.hasFile
+                height: 26
+                width: pmRow.implicitWidth + 20
+                radius: 6
+                color: pmMouse.containsMouse ? Theme.toolbarHover : Theme.surfaceMuted
+                border.width: 1
+                border.color: Theme.border
+
+                Row {
+                    id: pmRow
+                    anchors.centerIn: parent
+                    spacing: 6
+
+                    Text {
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: "📦"
+                        font.pixelSize: 12
+                    }
+                    Text {
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: Pm.activeName
+                        font.pixelSize: 13
+                        font.bold: true
+                        color: Theme.textBody
+                    }
+                    Text {
+                        anchors.verticalCenter: parent.verticalCenter
+                        text: Pm.hasOverride ? "📌" : "▾"
+                        font.pixelSize: 11
+                        color: Theme.textSubtle
+                    }
+                }
+
+                MouseArea {
+                    id: pmMouse
+                    anchors.fill: parent
+                    hoverEnabled: true
+                    cursorShape: Qt.PointingHandCursor
+                    onClicked: Pm.requestPicker()
+                }
+            }
+
             AppToolButton {
                 text: qsTr("✕  Close")
                 visible: !root.settingsOpen && Project.hasFile
@@ -258,7 +308,7 @@ ApplicationWindow {
                 root.pendingAction = "clearCache"
                 modal.show({
                     "title": qsTr("Clear cache?"),
-                    "message": qsTr("All locally stored npm version data will be deleted. The next time you open a project every package will be re-fetched from the npm registry."),
+                    "message": qsTr("All locally stored version data will be deleted. The next time you open a project every package will be re-fetched from the npm registry."),
                     "showCancel": true,
                     "confirmText": qsTr("Clear Cache"),
                     "danger": true
@@ -271,7 +321,7 @@ ApplicationWindow {
         anchors.fill: parent
         active: root.installVisible
         sourceComponent: Component {
-            NpmInstallOverlay {
+            InstallOverlay {
                 onClosed: root.installVisible = false
             }
         }
@@ -297,7 +347,9 @@ ApplicationWindow {
             spacing: 10
 
             Text {
+                // Flexes and elides so the trailing version chips always fit.
                 Layout.fillWidth: true
+                Layout.minimumWidth: 0
                 text: Project.statusMessage !== "" ? Project.statusMessage
                     : (Project.hasFile ? "" : qsTr("No file loaded. Open a package.json to begin."))
                 font.pixelSize: 14
@@ -307,7 +359,8 @@ ApplicationWindow {
 
             Text {
                 visible: Project.hasFile
-                Layout.maximumWidth: 360
+                Layout.maximumWidth: 300
+                Layout.minimumWidth: 0
                 text: Project.filePath
                 font.pixelSize: 13
                 color: Theme.textSubtle
@@ -316,6 +369,7 @@ ApplicationWindow {
 
             Text {
                 visible: Git.nvmrcText !== ""
+                Layout.minimumWidth: implicitWidth
                 text: Git.nvmrcText
                 font.pixelSize: 13
                 font.bold: true
@@ -330,6 +384,7 @@ ApplicationWindow {
             }
 
             Text {
+                Layout.minimumWidth: implicitWidth
                 text: !root.versionsReady ? qsTr("node …")
                     : (App.nodeVersion ? qsTr("node %1").arg(App.nodeVersion) : qsTr("node —"))
                 font.pixelSize: 13
@@ -343,8 +398,9 @@ ApplicationWindow {
             }
 
             Text {
-                text: !root.versionsReady ? qsTr("npm …")
-                    : (App.npmVersion ? qsTr("npm %1").arg(App.npmVersion) : qsTr("npm —"))
+                Layout.minimumWidth: implicitWidth
+                text: qsTr("%1 %2").arg(Pm.activeName)
+                    .arg((root.versionsReady && App.managerVersion) ? App.managerVersion : "…")
                 font.pixelSize: 13
                 color: Theme.statusText
             }
@@ -365,6 +421,8 @@ ApplicationWindow {
         currentFolder: Project.initialFolderDir
         onAccepted: Project.openFolderUrl(selectedFolder)
     }
+
+    PackageManagerDialog { id: pmDialog }
 
     ModalDialog {
         id: modal

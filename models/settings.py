@@ -9,6 +9,8 @@ from pathlib import Path
 
 from PyQt6.QtCore import QSettings
 
+from core.package_manager import DEFAULT_MANAGER, Detection, PackageManager, detect
+
 ORG = "42nl"
 APP = "PackageJsonUpdater"
 _MAX_RECENT = 10
@@ -59,6 +61,9 @@ class AppSettings:
     # Each entry: {"path": str, "last_checked": str | None}
     pending_installs: dict = field(default_factory=dict)
     # {"path/to/package.json": ["dep-a", "dep-b"]}
+    default_package_manager: str = "npm"    # global fallback: npm | yarn | pnpm | bun
+    package_manager_overrides: dict = field(default_factory=dict)
+    # {"path/to/project-dir": "npm" | "yarn" | "pnpm" | "bun"}
     old_version_threshold: int = 12   # number of months or years (0 = disabled)
     old_version_unit: str = "months"  # "months" | "years"
 
@@ -98,6 +103,65 @@ class AppSettings:
                 break
         self.save()
 
+    # ── package-manager selection ─────────────────────────────────────────────
+
+    def package_manager_override(self, project_dir: str) -> str | None:
+        """Return the pinned manager id for *project_dir*, or None if unset."""
+        return self.package_manager_overrides.get(project_dir)
+
+    def set_package_manager_override(self, project_dir: str, manager_id: str) -> None:
+        """Pin *project_dir* to *manager_id* (validated) and persist immediately."""
+        pm = PackageManager.from_id(manager_id)
+        if pm is None or not project_dir:
+            return
+        self.package_manager_overrides[project_dir] = pm.id
+        self.save()
+
+    def clear_package_manager_override(self, project_dir: str) -> None:
+        """Remove any pin for *project_dir* and persist if something changed."""
+        if self.package_manager_overrides.pop(project_dir, None) is not None:
+            self.save()
+
+    def resolve_package_manager(self, project_dir: str) -> Detection:
+        """Full detection for *project_dir*, honoring its override and the
+        global default.  ``manager`` is None when multiple lockfiles make the
+        choice ambiguous (the UI prompts in that case)."""
+        return detect(
+            project_dir,
+            override=self.package_manager_override(project_dir),
+            default=self.default_package_manager,
+        )
+
+    def active_package_manager(self, project_dir: str) -> PackageManager:
+        """Concrete manager for driving CLI commands — never None.
+
+        On ambiguity, prefer the global default when it is among the
+        candidates, otherwise the first candidate (enum order)."""
+        result = self.resolve_package_manager(project_dir)
+        if result.manager is not None:
+            return result.manager
+        default_pm = PackageManager.from_id(self.default_package_manager) or DEFAULT_MANAGER
+        if default_pm in result.candidates:
+            return default_pm
+        return result.candidates[0] if result.candidates else default_pm
+
+    @staticmethod
+    def _sanitize_manager(value: str) -> str:
+        """Coerce a stored manager id to a supported one, defaulting to npm."""
+        return (PackageManager.from_id(value) or DEFAULT_MANAGER).id
+
+    @staticmethod
+    def _sanitize_overrides(raw) -> dict:
+        """Keep only override entries that name a supported manager."""
+        if not isinstance(raw, dict):
+            return {}
+        clean: dict = {}
+        for path, value in raw.items():
+            pm = PackageManager.from_id(value)
+            if pm is not None:
+                clean[str(path)] = pm.id
+        return clean
+
     # ── persistence ───────────────────────────────────────────────────────────
 
     def load(self) -> None:
@@ -118,6 +182,14 @@ class AppSettings:
             self.pending_installs = json.loads(s.value("pending_installs", "{}"))
         except Exception:
             self.pending_installs = {}
+
+        self.default_package_manager = self._sanitize_manager(
+            str(s.value("default_package_manager", self.default_package_manager)))
+        try:
+            raw_overrides = json.loads(s.value("package_manager_overrides", "{}"))
+        except Exception:
+            raw_overrides = {}
+        self.package_manager_overrides = self._sanitize_overrides(raw_overrides)
 
         # Read new "theme" key; migrate legacy "dark_mode" bool if present
         raw_theme = s.value("theme", None)
@@ -140,4 +212,6 @@ class AppSettings:
         s.setValue("old_version_unit",       self.old_version_unit)
         s.setValue("recent_files",     json.dumps(self.recent_files))
         s.setValue("pending_installs", json.dumps(self.pending_installs))
+        s.setValue("default_package_manager",   self.default_package_manager)
+        s.setValue("package_manager_overrides", json.dumps(self.package_manager_overrides))
         s.remove("dark_mode")   # clean up migrated key
