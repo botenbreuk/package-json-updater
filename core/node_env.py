@@ -71,11 +71,14 @@ def node_path_env() -> dict:
         "/opt/homebrew/bin",                                 # Homebrew Apple Silicon
         "/opt/homebrew/sbin",
         "/opt/local/bin",                                    # MacPorts
-        f"{home}/.volta/bin",                                # Volta
+        f"{home}/.volta/bin",                                # Volta (node + yarn/pnpm shims)
+        f"{home}/.bun/bin",                                  # Bun (default install)
+        f"{home}/Library/pnpm",                              # pnpm standalone (macOS)
+        f"{home}/.local/share/pnpm",                         # pnpm standalone (Linux)
         f"{home}/.local/share/fnm/aliases/default/bin",     # fnm
         f"{home}/.asdf/shims",                               # asdf
         f"{home}/.nodenv/shims",                             # nodenv
-        *_nvm_bin_dirs(),                                    # nvm
+        *_nvm_bin_dirs(),                                    # nvm (+ corepack yarn/pnpm shims)
     ]
 
     current = env.get("PATH", "")

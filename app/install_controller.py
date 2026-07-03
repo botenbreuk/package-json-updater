@@ -1,6 +1,7 @@
 """
-Controller that runs ``npm install`` in the project directory and streams the
-output live to the QML overlay.  Exposed to QML as the ``Install`` property.
+Controller that runs the active package manager's install command in the
+project directory and streams the output live to the QML overlay.  Exposed to
+QML as the ``Install`` property.
 """
 from __future__ import annotations
 
@@ -13,6 +14,8 @@ from PyQt6.QtCore import (
 )
 
 from core.node_env import node_path_env
+from core.package_manager import PackageManager
+from models.settings import AppSettings
 
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*[A-Za-z]|\x1b\][^\x07]*\x07|\x1b[()][AB012]")
 
@@ -21,15 +24,17 @@ def _strip_ansi(text: str) -> str:
     return _ANSI_RE.sub("", text)
 
 
-class NpmInstallController(QObject):
+class InstallController(QObject):
     runningChanged = pyqtSignal()
     statusChanged = pyqtSignal()
     outputChanged = pyqtSignal()
     succeeded = pyqtSignal()
 
-    def __init__(self, parent: QObject | None = None) -> None:
+    def __init__(self, settings: AppSettings, parent: QObject | None = None) -> None:
         super().__init__(parent)
+        self._settings = settings
         self._process: QProcess | None = None
+        self._manager: PackageManager | None = None
         self._running = False
         self._status = "running"          # running | ok | error
         self._status_text = ""
@@ -53,9 +58,12 @@ class NpmInstallController(QObject):
 
     @pyqtSlot(str)
     def start(self, project_dir: str) -> None:
+        pm = self._settings.active_package_manager(project_dir)
+        self._manager = pm
+
         self._output = ""
         self.outputChanged.emit()
-        self._set_status("running", "Running npm install…")
+        self._set_status("running", f"Running {pm.display} install…")
 
         self._process = QProcess(self)
         self._process.setWorkingDirectory(project_dir)
@@ -68,15 +76,21 @@ class NpmInstallController(QObject):
         self._process.readyReadStandardOutput.connect(self._on_output)
         self._process.finished.connect(self._on_finished)
 
+        program, args = self._invocation(pm, env["PATH"])
         self._set_running(True)
-        if sys.platform == "win32":
-            self._process.start("cmd.exe", ["/c", "npm", "install"])
-        else:
-            npm = shutil.which("npm", path=env["PATH"]) or "npm"
-            self._process.start(npm, ["install"])
+        self._process.start(program, args)
 
         if not self._process.waitForStarted(3000):
             self._on_failed_to_start()
+
+    @staticmethod
+    def _invocation(pm: PackageManager, path_env: str) -> tuple[str, list[str]]:
+        """Build the (program, args) to run ``<pm> install`` for this platform."""
+        argv = pm.install_cmd()
+        if sys.platform == "win32":
+            return "cmd.exe", ["/c", *argv]
+        program = shutil.which(pm.binary, path=path_env) or pm.binary
+        return program, argv[1:]
 
     @pyqtSlot()
     def stop(self) -> None:
@@ -105,7 +119,8 @@ class NpmInstallController(QObject):
 
     def _on_failed_to_start(self) -> None:
         self._set_running(False)
-        self._set_status("error", "✕   Could not start npm — is it installed and on PATH?")
+        name = self._manager.display if self._manager else "the package manager"
+        self._set_status("error", f"✕   Could not start {name} — is it installed and on PATH?")
 
     # ── helpers ──────────────────────────────────────────────────────────────
 

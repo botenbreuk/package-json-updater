@@ -8,6 +8,7 @@ later migration chunks.
 """
 from __future__ import annotations
 
+import shutil
 import subprocess
 import sys
 from datetime import datetime, timedelta, timezone
@@ -19,6 +20,7 @@ from PyQt6.QtCore import (
 from _version import VERSION
 from core.node_env import node_path_env
 from core.npm_cache import NpmCache
+from core.package_manager import DEFAULT_MANAGER, PackageManager
 from models.settings import AppSettings
 
 
@@ -56,24 +58,34 @@ def _fmt_duration(secs: float) -> str:
 
 
 class _VersionFetcher(QObject):
-    """Fetches ``node --version`` and ``npm --version`` on a background thread."""
+    """Fetches ``node --version`` and ``<manager> --version`` on a background thread."""
 
-    versions_ready = pyqtSignal(str, str)   # (node_version, npm_version)
+    versions_ready = pyqtSignal(str, str, str)   # (manager_id, node_version, manager_version)
+
+    def __init__(self, manager: PackageManager, parent: QObject | None = None) -> None:
+        super().__init__(parent)
+        self._manager = manager
 
     def run(self) -> None:
         env = node_path_env()
 
         def _get(cmd: list[str]) -> str:
+            # Resolve the binary against the augmented PATH (like the install
+            # controller does) — a GUI launch's minimal PATH won't find node /
+            # yarn / pnpm / bun by bare name otherwise.
+            program = cmd[0]
+            if sys.platform != "win32":
+                program = shutil.which(cmd[0], path=env["PATH"]) or cmd[0]
             try:
-                r = subprocess.run(cmd, capture_output=True, text=True, timeout=6, env=env,
-                                   shell=sys.platform == "win32")
+                r = subprocess.run([program, *cmd[1:]], capture_output=True, text=True,
+                                   timeout=6, env=env, shell=sys.platform == "win32")
                 return r.stdout.strip() if r.returncode == 0 else ""
             except Exception:
                 return ""
 
         node_v = _get(["node", "--version"])
-        npm_v = _get(["npm", "--version"])
-        self.versions_ready.emit(node_v, npm_v)
+        manager_v = _get(self._manager.version_cmd())
+        self.versions_ready.emit(self._manager.id, node_v, manager_v)
 
 
 class AppController(QObject):
@@ -85,6 +97,7 @@ class AppController(QObject):
     displaySettingsChanged = pyqtSignal()
     settingsChanged = pyqtSignal()
     cacheChanged = pyqtSignal()
+    pmSettingsChanged = pyqtSignal()
     flash = pyqtSignal(str)
     reFetchRequested = pyqtSignal()
 
@@ -99,10 +112,11 @@ class AppController(QObject):
         self._cache_revision = 0
 
         self._node_version = ""
-        self._npm_version = ""
-        self._ver_thread: QThread | None = None
-        self._ver_fetcher: _VersionFetcher | None = None
-        self._start_version_fetch()
+        self._manager_version = ""
+        self._active_manager = (PackageManager.from_id(self._settings.default_package_manager)
+                                or DEFAULT_MANAGER)
+        self._ver_jobs: list[tuple[QThread, _VersionFetcher]] = []
+        self._start_version_fetch(self._active_manager)
 
     # ── theme ──────────────────────────────────────────────────────────────────
 
@@ -222,6 +236,38 @@ class AppController(QObject):
                          else f"refreshes in {_fmt_duration(remaining)}")
         return " · ".join(parts)
 
+    # ── package-manager settings ────────────────────────────────────────────────
+
+    @pyqtProperty(str, notify=pmSettingsChanged)
+    def defaultPackageManager(self) -> str:
+        return self._settings.default_package_manager
+
+    @pyqtSlot(str)
+    def setDefaultPackageManager(self, manager_id: str) -> None:
+        pm = PackageManager.from_id(manager_id)
+        if pm is None or pm.id == self._settings.default_package_manager:
+            return
+        self._settings.default_package_manager = pm.id
+        self._settings.save()
+        self.pmSettingsChanged.emit()
+        self.flash.emit("✓  Default package manager saved")
+
+    @pyqtProperty("QVariantList", notify=pmSettingsChanged)
+    def packageManagerOverrides(self) -> list:
+        """The per-folder pins as ``[{path, manager, name}]``, sorted by path."""
+        out = []
+        for path, manager_id in sorted(self._settings.package_manager_overrides.items()):
+            pm = PackageManager.from_id(manager_id)
+            out.append({"path": path, "manager": manager_id,
+                        "name": pm.display if pm else manager_id})
+        return out
+
+    @pyqtSlot(str)
+    def removePackageManagerOverride(self, path: str) -> None:
+        self._settings.clear_package_manager_override(path)
+        self.pmSettingsChanged.emit()
+        self.flash.emit("✓  Override removed")
+
     # ── versions ───────────────────────────────────────────────────────────────
 
     @pyqtProperty(str, notify=versionsChanged)
@@ -229,31 +275,56 @@ class AppController(QObject):
         return self._node_version
 
     @pyqtProperty(str, notify=versionsChanged)
-    def npmVersion(self) -> str:
-        return self._npm_version
+    def managerVersion(self) -> str:
+        return self._manager_version
 
     @pyqtProperty(str, constant=True)
     def appVersion(self) -> str:
         return VERSION
 
-    def _start_version_fetch(self) -> None:
-        fetcher = _VersionFetcher()
+    @pyqtSlot(str)
+    def refreshManagerVersion(self, manager_id: str) -> None:
+        """Re-probe the version for a newly-active manager (called when the open
+        project's package manager changes)."""
+        pm = PackageManager.from_id(manager_id)
+        if pm is None or pm is self._active_manager:
+            return
+        self._active_manager = pm
+        self._manager_version = ""          # clear until the new probe returns
+        self.versionsChanged.emit()
+        self._start_version_fetch(pm)
+
+    def _start_version_fetch(self, manager: PackageManager) -> None:
+        fetcher = _VersionFetcher(manager)
         thread = QThread(self)
         fetcher.moveToThread(thread)
+        # Keep strong refs to BOTH the thread and the fetcher until the thread
+        # finishes.  QThread.started fires after this method returns, so without
+        # a retained reference the fetcher can be garbage-collected first and
+        # run() would never execute.
+        job = (thread, fetcher)
+        self._ver_jobs.append(job)
+
         thread.started.connect(fetcher.run)
+        # versions_ready carries the manager id so this stays a queued
+        # connection to a real slot (delivered on the main thread), not a bare
+        # lambda that would run in the worker thread.
+        fetcher.versions_ready.connect(self._on_versions_fetched)
         fetcher.versions_ready.connect(thread.quit)
         fetcher.versions_ready.connect(fetcher.deleteLater)
-        fetcher.versions_ready.connect(self._on_versions_fetched)
         thread.finished.connect(thread.deleteLater)
-        self._ver_thread = thread
-        self._ver_fetcher = fetcher
+        thread.finished.connect(lambda: self._release_job(job))
         thread.start()
 
-    def _on_versions_fetched(self, node_v: str, npm_v: str) -> None:
-        self._ver_thread = None
-        self._ver_fetcher = None
+    def _release_job(self, job: tuple) -> None:
+        if job in self._ver_jobs:
+            self._ver_jobs.remove(job)
+
+    @pyqtSlot(str, str, str)
+    def _on_versions_fetched(self, manager_id: str, node_v: str, mgr_v: str) -> None:
         self._node_version = node_v
-        self._npm_version = npm_v
+        if manager_id == self._active_manager.id:      # ignore stale results
+            self._manager_version = mgr_v
         self.versionsChanged.emit()
 
     # ── lifecycle ──────────────────────────────────────────────────────────────
@@ -261,10 +332,10 @@ class AppController(QObject):
     @pyqtSlot()
     def shutdown(self) -> None:
         """Stop background threads cleanly before the process exits."""
-        if self._ver_thread is not None:
+        for thread, _fetcher in list(self._ver_jobs):
             try:
-                self._ver_thread.quit()
-                self._ver_thread.wait(2000)
+                thread.quit()
+                thread.wait(2000)
             except RuntimeError:
                 pass
-            self._ver_thread = None
+        self._ver_jobs.clear()

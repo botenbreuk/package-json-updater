@@ -33,7 +33,7 @@ Item {
             spacing: 12
 
             Text {
-                text: qsTr("npm install")
+                text: Pm.installCommand
                 font.pixelSize: 18
                 font.bold: true
                 color: Theme.textHeading

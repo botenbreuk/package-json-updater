@@ -64,7 +64,7 @@ ColumnLayout {
 
         AppButton {
             variant: "secondary"
-            text: qsTr("📦  npm install")
+            text: qsTr("📦  %1").arg(Pm.installCommand)
             enabled: Project.hasFile
             Layout.preferredHeight: 46
             onClicked: actionBar.npmInstallRequested()

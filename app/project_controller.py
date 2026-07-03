@@ -13,6 +13,7 @@ from PyQt6.QtCore import (
 
 from core.npm_cache import NpmCache
 from core.package_json import load as load_package, save as save_package
+from core.package_manager import PackageManager
 from core.semver_utils import apply_prefix
 from models.dependency import DependencyInfo
 from models.settings import AppSettings
@@ -401,7 +402,7 @@ class ProjectController(QObject):
         self._recompute_selection()
         self._settings.update_last_checked(self._file_path)
         self._refresh_recents()
-        self._set_status(f"✓  {dep.name} updated to {version} — run npm install to apply.")
+        self._set_status(f"✓  {dep.name} updated to {version} — run {self._install_hint()} to apply.")
 
     # ── bulk updates ────────────────────────────────────────────────────────────
 
@@ -455,7 +456,7 @@ class ProjectController(QObject):
         self.infoMessage.emit(
             "Updated",
             f"{len(updates)} package(s) updated in package.json.\n\n"
-            "Run 'npm install' to apply the changes.")
+            f"Run '{self._install_hint()}' to apply the changes.")
         self.openFile(self._file_path)
 
     @pyqtSlot()
@@ -614,9 +615,14 @@ class ProjectController(QObject):
     def _install_ran_externally(path: str) -> bool:
         pkg_mtime = os.path.getmtime(path)
         directory = os.path.dirname(path)
-        lock_files = ["package-lock.json", "yarn.lock", "pnpm-lock.yaml"]
+        lock_files = [lf for pm in PackageManager for lf in pm.lockfiles]
         return any(
             os.path.getmtime(os.path.join(directory, lf)) >= pkg_mtime
             for lf in lock_files
             if os.path.exists(os.path.join(directory, lf))
         )
+
+    def _install_hint(self) -> str:
+        """The install command for the current project's manager, e.g. 'pnpm install'."""
+        directory = os.path.dirname(self._file_path) if self._file_path else ""
+        return " ".join(self._settings.active_package_manager(directory).install_cmd())

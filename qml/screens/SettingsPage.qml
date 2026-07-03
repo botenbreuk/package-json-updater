@@ -19,6 +19,7 @@ Item {
         ttlSpin.value = App.cacheTtlHours
         oldSpin.value = App.oldVersionThreshold
         unitCombo.currentIndex = App.oldVersionUnit === "years" ? 1 : 0
+        defaultPmCombo.currentIndex = Math.max(0, defaultPmCombo.values.indexOf(App.defaultPackageManager))
     }
 
     Component.onCompleted: syncFromSettings()
@@ -39,7 +40,7 @@ Item {
 
                 Repeater {
                     model: [qsTr("Theme"), qsTr("Version Age Filter"), qsTr("Old Version Warning"),
-                            qsTr("Version Cache"), qsTr("Display"), qsTr("About")]
+                            qsTr("Version Cache"), qsTr("Display"), qsTr("Package Managers"), qsTr("About")]
 
                     Rectangle {
                         required property int index
@@ -251,6 +252,121 @@ Item {
                         checked: App.mergePatchMinor
                         onToggled: App.setMergePatchMinor(!App.mergePatchMinor)
                     }
+                    Item { Layout.fillHeight: true; Layout.preferredHeight: 28 }
+                }
+            }
+
+            // ── Package Managers ────────────────────────────────────────────
+            ScrollView {
+                contentWidth: availableWidth
+                ScrollBar.vertical: ThinScrollBar {}
+                ColumnLayout {
+                    width: parent.width
+                    Item { Layout.preferredHeight: 28 }
+                    Text { text: qsTr("Package Managers"); color: Theme.textHeading; font.pixelSize: 20; font.bold: true; Layout.leftMargin: 32 }
+                    Text {
+                        text: qsTr("The package manager is detected from each project's lockfile. When several lockfiles are present you're asked which to use; you can also pin a folder from the 📦 badge in the toolbar.")
+                        color: Theme.textMuted; font.pixelSize: 14; wrapMode: Text.WordWrap
+                        Layout.leftMargin: 32; Layout.rightMargin: 32; Layout.fillWidth: true
+                    }
+
+                    Rectangle { Layout.fillWidth: true; Layout.leftMargin: 32; Layout.rightMargin: 32; Layout.topMargin: 8; implicitHeight: 1; color: Theme.border }
+
+                    Text { text: qsTr("Default"); color: Theme.textBody; font.pixelSize: 16; font.bold: true; Layout.leftMargin: 32 }
+                    Text {
+                        text: qsTr("Used when a project has no lockfile and no pinned folder override.")
+                        color: Theme.textMuted; font.pixelSize: 14; wrapMode: Text.WordWrap
+                        Layout.leftMargin: 32; Layout.rightMargin: 32; Layout.fillWidth: true
+                    }
+                    RowLayout {
+                        Layout.leftMargin: 32; Layout.rightMargin: 32; Layout.fillWidth: true; Layout.topMargin: 4
+                        Text { text: qsTr("Default package manager:"); color: Theme.textBody; font.pixelSize: Theme.fontSize }
+                        Item { Layout.fillWidth: true }
+                        AppComboBox {
+                            id: defaultPmCombo
+                            Layout.preferredWidth: 140
+                            model: ["npm", "Yarn", "pnpm", "Bun"]
+                            values: ["npm", "yarn", "pnpm", "bun"]
+                            onValuePicked: (value) => App.setDefaultPackageManager(value)
+                        }
+                    }
+
+                    Rectangle { Layout.fillWidth: true; Layout.leftMargin: 32; Layout.rightMargin: 32; Layout.topMargin: 8; implicitHeight: 1; color: Theme.border }
+
+                    Text { text: qsTr("Per-folder overrides"); color: Theme.textBody; font.pixelSize: 16; font.bold: true; Layout.leftMargin: 32 }
+                    Text {
+                        text: qsTr("Folders you've pinned to a specific package manager. Remove one to fall back to detection.")
+                        color: Theme.textMuted; font.pixelSize: 14; wrapMode: Text.WordWrap
+                        Layout.leftMargin: 32; Layout.rightMargin: 32; Layout.fillWidth: true
+                    }
+
+                    Text {
+                        visible: App.packageManagerOverrides.length === 0
+                        text: qsTr("No per-folder overrides yet.")
+                        color: Theme.textSubtle; font.pixelSize: 14
+                        Layout.leftMargin: 32; Layout.topMargin: 4
+                    }
+
+                    ColumnLayout {
+                        Layout.fillWidth: true
+                        Layout.leftMargin: 32; Layout.rightMargin: 32; Layout.topMargin: 4
+                        spacing: 6
+
+                        Repeater {
+                            model: App.packageManagerOverrides
+                            delegate: Rectangle {
+                                id: ovRow
+                                required property var modelData
+                                Layout.fillWidth: true
+                                implicitHeight: 44
+                                radius: 8
+                                color: Theme.surfaceAlt
+                                border.width: 1
+                                border.color: Theme.border
+
+                                RowLayout {
+                                    anchors.fill: parent
+                                    anchors.leftMargin: 12
+                                    anchors.rightMargin: 8
+                                    spacing: 10
+
+                                    Rectangle {
+                                        implicitWidth: nameLabel.implicitWidth + 16
+                                        implicitHeight: 22
+                                        radius: 5
+                                        color: Theme.surfaceMuted
+                                        border.width: 1
+                                        border.color: Theme.border
+                                        Text {
+                                            id: nameLabel
+                                            anchors.centerIn: parent
+                                            text: ovRow.modelData.name
+                                            font.pixelSize: 12
+                                            font.bold: true
+                                            color: Theme.textBody
+                                        }
+                                    }
+
+                                    Text {
+                                        Layout.fillWidth: true
+                                        text: ovRow.modelData.path
+                                        font.pixelSize: 13
+                                        font.family: Theme.monoFamily
+                                        color: Theme.textMuted
+                                        elide: Text.ElideMiddle
+                                    }
+
+                                    AppButton {
+                                        variant: "danger-ghost"
+                                        text: qsTr("Remove")
+                                        topPadding: 6; bottomPadding: 6; leftPadding: 12; rightPadding: 12
+                                        onClicked: App.removePackageManagerOverride(ovRow.modelData.path)
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     Item { Layout.fillHeight: true; Layout.preferredHeight: 28 }
                 }
             }
