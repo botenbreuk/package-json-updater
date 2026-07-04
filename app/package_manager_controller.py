@@ -26,6 +26,7 @@ class PackageManagerController(QObject):
         self._settings = settings
         self._project_dir = ""
         self._active = settings.active_package_manager("")   # global default at startup
+        self._session_pm: PackageManager | None = None   # session-only pick, not persisted
 
     # ── exposed state ─────────────────────────────────────────────────────────
 
@@ -55,6 +56,7 @@ class PackageManagerController(QObject):
         if project_dir == self._project_dir:
             return
         self._project_dir = project_dir
+        self._session_pm = None          # new project clears any session-only pick
         detection = self._settings.resolve_package_manager(project_dir)
         self._active = self._settings.active_package_manager(project_dir)
         self.activeChanged.emit()
@@ -64,7 +66,10 @@ class PackageManagerController(QObject):
     @pyqtSlot()
     def reevaluate(self) -> None:
         """Re-resolve the active manager for the current project without
-        prompting — e.g. after the default or an override changed in Settings."""
+        prompting — e.g. after the default or an override changed in Settings.
+        A session-only pick (remember=False) is preserved."""
+        if self._session_pm is not None:
+            return
         self._active = self._settings.active_package_manager(self._project_dir)
         self.activeChanged.emit()
 
@@ -84,7 +89,10 @@ class PackageManagerController(QObject):
             return
         if remember and self._project_dir:
             self._settings.set_package_manager_override(self._project_dir, pm.id)
+            self._session_pm = None      # persisted — no longer session-only
             self.overridesChanged.emit()
+        else:
+            self._session_pm = pm        # track so reevaluate() doesn't overwrite it
         self._active = pm
         self.activeChanged.emit()
 
