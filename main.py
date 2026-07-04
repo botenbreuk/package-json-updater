@@ -64,6 +64,8 @@ def main() -> None:
         lambda: pm_controller.setProject(project_controller.projectDir))
     pm_controller.activeChanged.connect(
         lambda: app_controller.refreshManagerVersion(pm_controller.activeId))
+    pm_controller.activeChanged.connect(
+        lambda: project_controller.setActivePackageManager(pm_controller.activeId))
     # Default / override edits in Settings re-resolve the open project's manager.
     app_controller.pmSettingsChanged.connect(pm_controller.reevaluate)
     # A pinned choice from the picker refreshes the Settings overrides list.

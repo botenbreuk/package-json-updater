@@ -51,6 +51,7 @@ class ProjectController(QObject):
         self._file_path: str = ""
         self._original_data: dict = {}
         self._deps: list[DependencyInfo] = []
+        self._active_pm = settings.active_package_manager("")   # kept in sync via setActivePackageManager
         self._by_rowkey: dict[tuple, DependencyInfo] = {}
         self._pending_install_names: set[str] = set()
 
@@ -622,7 +623,13 @@ class ProjectController(QObject):
             if os.path.exists(os.path.join(directory, lf))
         )
 
+    @pyqtSlot(str)
+    def setActivePackageManager(self, manager_id: str) -> None:
+        """Keep _active_pm in sync with PackageManagerController (wired in main.py)."""
+        pm = PackageManager.from_id(manager_id)
+        if pm is not None:
+            self._active_pm = pm
+
     def _install_hint(self) -> str:
         """The install command for the current project's manager, e.g. 'pnpm install'."""
-        directory = os.path.dirname(self._file_path) if self._file_path else ""
-        return " ".join(self._settings.active_package_manager(directory).install_cmd())
+        return " ".join(self._active_pm.install_cmd())

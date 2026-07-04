@@ -322,8 +322,8 @@ class AppController(QObject):
 
     @pyqtSlot(str, str, str)
     def _on_versions_fetched(self, manager_id: str, node_v: str, mgr_v: str) -> None:
-        self._node_version = node_v
         if manager_id == self._active_manager.id:      # ignore stale results
+            self._node_version = node_v
             self._manager_version = mgr_v
         self.versionsChanged.emit()
 
