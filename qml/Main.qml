@@ -24,6 +24,7 @@ ApplicationWindow {
     property bool installVisible: false
     property string pendingUpdateMode: ""
     property string pendingAction: ""
+    property string pendingNvmVersion: ""
     readonly property string view: settingsOpen ? "settings"
                                                  : (Project.hasFile ? "table" : "start")
 
@@ -73,6 +74,29 @@ ApplicationWindow {
     Connections {
         target: Install
         function onSucceeded() { Project.clearPending() }
+    }
+
+    Connections {
+        target: Nvm
+        function onNotInstalled(version) {
+            root.pendingAction = "nvmInstall"
+            root.pendingNvmVersion = version
+            modal.show({
+                "title": qsTr("Install Node %1?").arg(version),
+                "message": qsTr("Node %1 isn't installed via nvm yet.\nRun \"nvm install %1\" to install and switch to it? This may take a minute.").arg(version),
+                "showCancel": true,
+                "confirmText": qsTr("Install")
+            })
+        }
+        function onSwitched(version) {
+            root.pendingAction = ""
+            App.refreshVersions()
+            flashMsg.show(qsTr("✓  Switched to Node %1").arg(version))
+        }
+        function onFailed(message) {
+            root.pendingAction = ""
+            modal.show({ "title": qsTr("nvm error"), "message": message })
+        }
     }
 
     Connections {
@@ -368,12 +392,34 @@ ApplicationWindow {
             }
 
             Text {
+                id: nvmrcChip
                 visible: Git.nvmrcText !== ""
                 Layout.minimumWidth: implicitWidth
-                text: Git.nvmrcText
+                text: Nvm.busy ? Nvm.statusText : Git.nvmrcText
                 font.pixelSize: 13
                 font.bold: true
+                font.underline: nvmrcMouse.containsMouse
                 color: Git.nvmrcWarn ? Theme.warn : Theme.textMuted
+                opacity: Nvm.busy ? 0.7 : 1
+
+                MouseArea {
+                    id: nvmrcMouse
+                    readonly property bool clickable: Git.nvmrcWarn && !Nvm.busy
+                    anchors.fill: parent
+                    enabled: clickable
+                    hoverEnabled: clickable
+                    cursorShape: clickable ? Qt.PointingHandCursor : Qt.ArrowCursor
+                    onClicked: {
+                        root.pendingAction = "nvmSwitch"
+                        root.pendingNvmVersion = Git.nvmrcVersion
+                        modal.show({
+                            "title": qsTr("Switch Node version?"),
+                            "message": qsTr("This project's .nvmrc wants Node %1 (currently using %2).\n\nRun \"nvm use %1\" to switch? It will also become your nvm default.").arg(Git.nvmrcVersion).arg(App.nodeVersion),
+                            "showCancel": true,
+                            "confirmText": qsTr("Switch")
+                        })
+                    }
+                }
             }
 
             Text {
@@ -431,6 +477,10 @@ ApplicationWindow {
                 Project.applyUpdateAll(root.pendingUpdateMode)
             else if (root.pendingAction === "clearCache")
                 App.clearCache()
+            else if (root.pendingAction === "nvmSwitch")
+                Nvm.use(root.pendingNvmVersion)
+            else if (root.pendingAction === "nvmInstall")
+                Nvm.install(root.pendingNvmVersion)
             root.pendingAction = ""
         }
         onRejected: root.pendingAction = ""

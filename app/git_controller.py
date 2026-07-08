@@ -66,6 +66,7 @@ class GitController(QObject):
         self._pulling = False
         self._node_version = ""
         self._nvmrc_text = ""
+        self._nvmrc_version = ""
         self._nvmrc_warn = False
         self._fetch_pairs: set = set()
         self._pull_pairs: set = set()
@@ -95,6 +96,11 @@ class GitController(QObject):
     @pyqtProperty(str, notify=nvmrcChanged)
     def nvmrcText(self) -> str:
         return self._nvmrc_text
+
+    @pyqtProperty(str, notify=nvmrcChanged)
+    def nvmrcVersion(self) -> str:
+        """The raw version string from .nvmrc (e.g. '20.19.0'), no label prefix."""
+        return self._nvmrc_version
 
     @pyqtProperty(bool, notify=nvmrcChanged)
     def nvmrcWarn(self) -> bool:
@@ -207,7 +213,7 @@ class GitController(QObject):
     # ── nvmrc ──────────────────────────────────────────────────────────────────
 
     def _update_nvmrc(self) -> None:
-        text, warn = "", False
+        text, version, warn = "", "", False
         if self._dir:
             nvmrc_path = os.path.join(self._dir, ".nvmrc")
             if os.path.isfile(nvmrc_path):
@@ -218,6 +224,7 @@ class GitController(QObject):
                     ver = ""
                 if ver:
                     text = f".nvmrc: {ver}"
+                    version = ver
                     if self._node_version:
                         try:
                             node_maj = int(self._node_version.lstrip("v").split(".")[0])
@@ -227,5 +234,6 @@ class GitController(QObject):
                             pass
         if (text, warn) != (self._nvmrc_text, self._nvmrc_warn):
             self._nvmrc_text = text
+            self._nvmrc_version = version
             self._nvmrc_warn = warn
             self.nvmrcChanged.emit()

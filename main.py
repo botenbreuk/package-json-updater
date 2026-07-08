@@ -22,6 +22,7 @@ from app.app_controller import AppController
 from app.project_controller import ProjectController
 from app.install_controller import InstallController
 from app.git_controller import GitController
+from app.nvm_controller import NvmController
 from app.package_manager_controller import PackageManagerController
 from core.npm_cache import NpmCache
 from models.settings import AppSettings
@@ -52,6 +53,7 @@ def main() -> None:
     project_controller = ProjectController(settings, cache)
     install_controller = InstallController(settings)
     git_controller = GitController()
+    nvm_controller = NvmController()
     pm_controller = PackageManagerController(settings)
 
     # Settings changes flow App → Project (re-filter / re-fetch as needed).
@@ -77,6 +79,7 @@ def main() -> None:
     ctx.setContextProperty("Project", project_controller)
     ctx.setContextProperty("Install", install_controller)
     ctx.setContextProperty("Git", git_controller)
+    ctx.setContextProperty("Nvm", nvm_controller)
     ctx.setContextProperty("Pm", pm_controller)
     engine.addImportPath(os.path.join(_ROOT, "qml"))
     engine.load(QUrl.fromLocalFile(os.path.join(_ROOT, "qml", "Main.qml")))
@@ -88,6 +91,7 @@ def main() -> None:
     app.aboutToQuit.connect(project_controller.shutdown)
     app.aboutToQuit.connect(install_controller.shutdown)
     app.aboutToQuit.connect(git_controller.shutdown)
+    app.aboutToQuit.connect(nvm_controller.shutdown)
 
     # Allow passing a package.json path as a command-line argument.
     if len(sys.argv) > 1 and os.path.isfile(sys.argv[1]):

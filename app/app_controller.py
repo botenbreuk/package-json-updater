@@ -294,6 +294,11 @@ class AppController(QObject):
         self.versionsChanged.emit()
         self._start_version_fetch(pm)
 
+    @pyqtSlot()
+    def refreshVersions(self) -> None:
+        """Re-probe node/manager versions (e.g. after an nvm switch)."""
+        self._start_version_fetch(self._active_manager)
+
     def _start_version_fetch(self, manager: PackageManager) -> None:
         fetcher = _VersionFetcher(manager)
         thread = QThread(self)
