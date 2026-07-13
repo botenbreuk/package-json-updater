@@ -13,9 +13,11 @@ Item {
     property string message: ""
     property bool showCancel: false
     property string confirmText: qsTr("OK")
+    property string secondaryText: ""
     property bool danger: false
 
     signal accepted()
+    signal secondaryTriggered()
     signal rejected()
 
     function show(opts) {
@@ -23,6 +25,7 @@ Item {
         message = opts.message || ""
         showCancel = opts.showCancel === true
         confirmText = opts.confirmText || qsTr("OK")
+        secondaryText = opts.secondaryText || ""
         danger = opts.danger === true
         active = true
     }
@@ -81,6 +84,17 @@ Item {
                     onClicked: {
                         modal.active = false
                         modal.rejected()
+                    }
+                }
+
+                AppButton {
+                    visible: modal.secondaryText !== ""
+                    variant: "secondary"
+                    text: modal.secondaryText
+                    Layout.preferredHeight: 40
+                    onClicked: {
+                        modal.active = false
+                        modal.secondaryTriggered()
                     }
                 }
 
