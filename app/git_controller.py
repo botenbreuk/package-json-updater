@@ -226,14 +226,28 @@ class GitController(QObject):
                     text = f".nvmrc: {ver}"
                     version = ver
                     if self._node_version:
-                        try:
-                            node_maj = int(self._node_version.lstrip("v").split(".")[0])
-                            nvmrc_maj = int(ver.lstrip("v").split(".")[0])
-                            warn = node_maj != nvmrc_maj
-                        except (ValueError, IndexError):
-                            pass
+                        warn = self._versions_differ(self._node_version, ver)
         if (text, warn) != (self._nvmrc_text, self._nvmrc_warn):
             self._nvmrc_text = text
             self._nvmrc_version = version
             self._nvmrc_warn = warn
             self.nvmrcChanged.emit()
+
+    @staticmethod
+    def _versions_differ(node_version: str, nvmrc_version: str) -> bool:
+        """Compare every version component .nvmrc pins, not just the major one.
+
+        A partial pin like ``20`` or ``20.19`` only checks that many
+        components; a full ``20.19.0`` requires an exact major.minor.patch
+        match.  Non-numeric specs (aliases like ``lts/iron``) can't be
+        compared this way, so they never warn.
+        """
+        node_parts = node_version.lstrip("v").split(".")
+        nvmrc_parts = nvmrc_version.lstrip("v").split(".")
+        n = min(len(node_parts), len(nvmrc_parts))
+        if n == 0:
+            return False
+        try:
+            return [int(p) for p in node_parts[:n]] != [int(p) for p in nvmrc_parts[:n]]
+        except ValueError:
+            return False

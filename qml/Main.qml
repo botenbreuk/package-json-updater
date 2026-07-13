@@ -88,10 +88,12 @@ ApplicationWindow {
                 "confirmText": qsTr("Install")
             })
         }
-        function onSwitched(version) {
+        function onSwitched(version, pinnedDefault) {
             root.pendingAction = ""
             App.refreshVersions()
-            flashMsg.show(qsTr("✓  Switched to Node %1").arg(version))
+            flashMsg.show(pinnedDefault
+                ? qsTr("✓  Node %1 is now your nvm default").arg(version)
+                : qsTr("✓  nvm use %1").arg(version))
         }
         function onFailed(message) {
             root.pendingAction = ""
@@ -414,9 +416,10 @@ ApplicationWindow {
                         root.pendingNvmVersion = Git.nvmrcVersion
                         modal.show({
                             "title": qsTr("Switch Node version?"),
-                            "message": qsTr("This project's .nvmrc wants Node %1 (currently using %2).\n\nRun \"nvm use %1\" to switch? It will also become your nvm default.").arg(Git.nvmrcVersion).arg(App.nodeVersion),
+                            "message": qsTr("This project's .nvmrc wants Node %1 (currently using %2).\n\n\"nvm use\" switches to it now, for this app only. \"Set as Default\" also pins it as your permanent nvm default.").arg(Git.nvmrcVersion).arg(App.nodeVersion),
                             "showCancel": true,
-                            "confirmText": qsTr("Switch")
+                            "confirmText": qsTr("nvm use"),
+                            "secondaryText": qsTr("Set as Default")
                         })
                     }
                 }
@@ -478,9 +481,14 @@ ApplicationWindow {
             else if (root.pendingAction === "clearCache")
                 App.clearCache()
             else if (root.pendingAction === "nvmSwitch")
-                Nvm.use(root.pendingNvmVersion)
+                Nvm.switchTo(root.pendingNvmVersion, false)
             else if (root.pendingAction === "nvmInstall")
                 Nvm.install(root.pendingNvmVersion)
+            root.pendingAction = ""
+        }
+        onSecondaryTriggered: {
+            if (root.pendingAction === "nvmSwitch")
+                Nvm.switchTo(root.pendingNvmVersion, true)
             root.pendingAction = ""
         }
         onRejected: root.pendingAction = ""
