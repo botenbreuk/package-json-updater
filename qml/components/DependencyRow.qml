@@ -38,7 +38,9 @@ Rectangle {
     property real wGroup: 74
     property real wCurrent: 150
     property real wType: 110
-    property real wVer: 150
+    property real wPatch: 150
+    property real wMinor: 150
+    property real wMajor: 150
     property bool mergeMode: false
 
     implicitHeight: 52
@@ -219,7 +221,7 @@ Rectangle {
         }
 
         VersionCell {
-            Layout.preferredWidth: row.wVer
+            Layout.preferredWidth: row.wPatch
             Layout.fillHeight: true
             visible: !row.mergeMode
             rowId: row.rowId
@@ -231,7 +233,7 @@ Rectangle {
         }
 
         VersionCell {
-            Layout.preferredWidth: row.wVer
+            Layout.preferredWidth: row.wMinor
             Layout.fillHeight: true
             rowId: row.rowId
             version: row.minorCellVer
@@ -242,7 +244,7 @@ Rectangle {
         }
 
         VersionCell {
-            Layout.preferredWidth: row.wVer
+            Layout.preferredWidth: row.wMajor
             Layout.fillHeight: true
             rowId: row.rowId
             version: row.majorVersion
