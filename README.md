@@ -23,7 +23,7 @@ A desktop app for keeping your JavaScript dependencies up to date. It works with
 - **Group filtering** — show only `dependencies`, `devDependencies`, or `overrides`
 - **Hide up-to-date** — collapse rows that have no available upgrade
 - **Merge Patch and Minor** — optional display setting that combines the Patch and Minor columns into one
-- **Resizable columns** — drag the dividers in the table header to resize columns; widths are remembered between sessions
+- **Resizable columns** — drag the dividers in the table header to resize columns; widths are remembered between sessions, and the Patch, Minor and Major columns never get narrower than their longest version and its ↑ button
 - **Git integration** — current branch shown in the filter bar; a pull button appears when the working copy is behind the remote
 - **Recent files** — start screen remembers the last opened projects with last-checked timestamps; scrollable when the list grows long
 - **Light & dark theme** — toggle in the toolbar, persisted between sessions
