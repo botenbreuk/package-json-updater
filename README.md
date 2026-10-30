@@ -90,9 +90,9 @@ The app stores two files on disk. Both are created automatically on first run.
 ## Requirements
 
 - Python 3.11+
-- PyQt6 ≥ 6.7 — the UI is built with **Qt Quick (QML)**; PyQt6 bundles the required Qt Quick / Controls modules
-- requests ≥ 2.31
-- packaging ≥ 23.0
+- PyQt6 6.12.0 — the UI is built with **Qt Quick (QML)**; PyQt6 bundles the required Qt Quick / Controls modules
+- requests 2.34.2
+- packaging 26.3
 
 At runtime, Node.js and whichever package manager your projects use must be
 installed and on your `PATH` (npm ships with Node; enable Yarn/pnpm with
@@ -122,6 +122,30 @@ pip install -r requirements.txt
 ## Running
 
 ```bash
+python main.py
+```
+
+---
+
+## Updating dependencies
+
+The dependencies are pinned to exact versions (`==`), the same in `requirements.txt`,
+`pyproject.toml` and the Requirements section above, so every install and release
+build uses the versions that were tested. To move to newer versions:
+
+```bash
+# 1. See which dependencies have a newer version
+source .venv/bin/activate   # Windows: .venv\Scripts\activate
+python -m pip list --outdated
+
+# 2. Change the pinned versions in requirements.txt, pyproject.toml and the
+#    Requirements section above, then install them; this also upgrades the
+#    packages the dependencies themselves use
+python -m pip install --upgrade pip
+python -m pip install --upgrade --upgrade-strategy eager -r requirements.txt
+
+# 3. Run the tests, then start the app and click through it (the tests don't cover the QML)
+python -m unittest discover -s tests -t .
 python main.py
 ```
 
