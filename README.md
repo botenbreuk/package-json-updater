@@ -13,7 +13,7 @@ A desktop app for keeping your JavaScript dependencies up to date. It works with
 - **Three-column update view** — Patch, Minor, and Major upgrades shown side by side with the release age of each version
 - **Constraint-type badge** — each row shows the version constraint type (Compatible `^`, Tilde `~`, Exact, Range, Wildcard, Local, Any)
 - **Per-dependency update button** — click ↑ on any version to write that single change to disk immediately, no re-fetch required
-- **Bulk updates** — select multiple packages with checkboxes (including a header _Select All_) and hit _Update Selected_, or use _Update All_ with a configurable scope (Patch & Minor only, or all levels including Major)
+- **Bulk updates** — select multiple packages with checkboxes (including a header _Select All_) and hit _Update Selected_, or use _Update All_ with a configurable scope (Patch only, Patch & Minor only, or all levels including Major)
 - **Package-manager aware** — detects npm / Yarn / pnpm / Bun from the project's lockfile, asks when several lockfiles are present, and lets you choose a manager per folder; every command-line action uses the right tool
 - **Install** — run your project's install command (`npm install`, `yarn install`, `pnpm install`, or `bun install`) in the project directory from the toolbar; an in-app overlay streams the live output and reports success or failure
 - **npm result cache** — fetched registry data is cached to disk with a configurable TTL so subsequent opens are instant; cache age is shown in the status bar
